@@ -258,6 +258,61 @@ export function transmitBeep() {
   o.start(t); o.stop(t + 0.35);
 }
 
+// answering-machine beep — plays before the found tape's message
+export function phoneBeep() {
+  const c = ctx(), t = c.currentTime;
+  const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = 990;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.14, t + 0.02);
+  g.gain.setValueAtTime(0.11, t + 0.42);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+  o.connect(g).connect(audio.radioBus);
+  o.start(t); o.stop(t + 0.6);
+}
+
+// continuous dirty shortwave hiss — feeds a destination (e.g. trash emitter)
+export function dirtyStaticInto(dest, gain = 0.4) {
+  const c = ctx();
+  const nz = audio.noiseSource(true);
+  const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2700; f.Q.value = 0.7;
+  const g = c.createGain(); g.gain.value = gain;
+  nz.connect(f).connect(g).connect(dest);
+  nz.start();
+  return { stop() { g.gain.linearRampToValueAtTime(0, c.currentTime + 0.2); setTimeout(() => { try { nz.stop(); } catch {} }, 400); } };
+}
+
+export function emitPop(dest, gain = 0.1) {
+  const c = ctx(), t = c.currentTime;
+  const nz = audio.noiseSource(false);
+  const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 2800;
+  const e = c.createGain();
+  e.gain.setValueAtTime(0.0001, t);
+  e.gain.exponentialRampToValueAtTime(gain, t + 0.004);
+  e.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+  nz.connect(f).connect(e).connect(dest);
+  nz.start(t); nz.stop(t + 0.06);
+}
+
+// the noise attack — full-band scream when the thing gets in
+export function noiseScream() {
+  const c = ctx(), t = c.currentTime;
+  const nz = audio.noiseSource(false);
+  const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 850; f.Q.value = 0.4;
+  const e = c.createGain();
+  e.gain.setValueAtTime(0.0001, t);
+  e.gain.exponentialRampToValueAtTime(1.5, t + 0.03);
+  e.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+  const o = c.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(230, t);
+  o.frequency.exponentialRampToValueAtTime(36, t + 2.2);
+  const og = c.createGain(); og.gain.value = 0.45;
+  nz.connect(f).connect(e).connect(audio.master);
+  o.connect(og).connect(e);
+  nz.start(t); nz.stop(t + 2.5);
+  o.start(t); o.stop(t + 2.5);
+}
+
 // radio tuning swoop texture while scanning the band
 export function scanSweep() {
   const c = ctx(), t = c.currentTime;

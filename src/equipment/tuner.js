@@ -49,6 +49,8 @@ export class Tuner {
     this.refs.needle.position.x = 0.14 + (t - 0.5) * 0.26;
     // dial rotation ~ -150..150 deg
     this.refs.dial.rotation.z = -(t * Math.PI * 1.7 - Math.PI * 0.85);
+    // fine-tune knob spins fast for tactile feedback
+    if (this.refs.fineKnob) this.refs.fineKnob.rotation.z = -t * Math.PI * 6;
     this.hud.setFreq(this.freq);
   }
 

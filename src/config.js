@@ -41,6 +41,7 @@ export const ATTENTION = {
   RECORD: 8,
   PLAYBACK: 10,
   TRANSMIT: 12,
+  PICKUP: 3,
   DECAY_PER_SEC: 0.55,
   MAX: 100,
   L1: 22,   // distant metal + interference
@@ -58,6 +59,7 @@ export const SOURCES = {
   door:   { bearing: -8,  label: 'DOOR',          world: [-0.8, 1.2, -2.9] },
   window: { bearing: 28,  label: 'WINDOW',        world: [1.35, 1.7, -2.9] },
   behind: { bearing: 178, label: 'BEHIND YOU',    world: [0.2, 1.35, 2.9] },
+  trash:  { bearing: -52, label: 'TRASH CAN',     world: [-1.7, 0.35, -1.3] },
 };
 
 // Simple pub/sub so modules stay decoupled.

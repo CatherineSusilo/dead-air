@@ -36,6 +36,14 @@ export function buildRoom(scene) {
   const redM = M(PALETTE.red);
   const blackM = M(PALETTE.black);
 
+  // dedicated materials for interactive hotspots (highlighted on hover)
+  const dialMat = M(0x1c1e1c);
+  const recBtnMat = M(PALETTE.red);
+  const foamMat = M(0x1c1c1c);
+  const radioKnobMat = M(0x181a18);
+  const wheelMat = M(0x555a55);
+  const tapeMat = M(0x9a8f6a);
+
   // ---------- shell ----------
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), floorMat);
   floor.rotation.x = -Math.PI / 2;
@@ -97,7 +105,7 @@ export function buildRoom(scene) {
   radioUnit.add(box(0.62, 0.3, 0.28, metalD, 0, 0.15, 0));
   radioUnit.add(box(0.24, 0.2, 0.02, grill, -0.16, 0.15, 0.145)); // speaker
   for (let i = 0; i < 3; i++) {
-    const k = cyl(0.025, 0.03, blackM, 0.08 + i * 0.1, 0.12, 0.15);
+    const k = cyl(0.025, 0.03, radioKnobMat, 0.08 + i * 0.1, 0.12, 0.15);
     k.rotation.x = Math.PI / 2;
     radioUnit.add(k);
   }
@@ -112,12 +120,25 @@ export function buildRoom(scene) {
   const tuner = new THREE.Group();
   tuner.add(box(0.72, 0.34, 0.32, metal, 0, 0.17, 0));
   tuner.add(box(0.68, 0.05, 0.30, metalD, 0, 0.02, 0));
-  // dial (rotates)
-  const dial = cyl(0.085, 0.035, blackM, -0.2, 0.17, 0.17);
+  // dial (rotates) — big, knurled, unmistakably grabbable
+  const dial = cyl(0.11, 0.05, dialMat, -0.2, 0.17, 0.175, 14);
   dial.rotation.x = Math.PI / 2;
-  const dialMark = box(0.012, 0.07, 0.012, redM, 0, 0.05, 0.02);
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2;
+    const tooth = box(0.014, 0.02, 0.024, dialMat,
+      Math.sin(a) * 0.108, Math.cos(a) * 0.108, 0);
+    tooth.rotation.z = -a;
+    dial.add(tooth);
+  }
+  const dialMark = box(0.014, 0.085, 0.014, redM, 0, 0.065, 0.028);
   dial.add(dialMark);
   tuner.add(dial);
+  // fine-tune knob, smaller
+  const fineKnob = cyl(0.045, 0.03, dialMat, -0.05, 0.17, 0.17, 10);
+  fineKnob.rotation.x = Math.PI / 2;
+  const fkMark = box(0.008, 0.035, 0.01, beigeM, 0, 0.028, 0.018);
+  fineKnob.add(fkMark);
+  tuner.add(fineKnob);
   // frequency window (red 7-seg look)
   const freqFace = new THREE.Mesh(
     new THREE.PlaneGeometry(0.22, 0.07),
@@ -153,7 +174,7 @@ export function buildRoom(scene) {
     }
     rec.add(r);
   }
-  const recBtn = box(0.05, 0.02, 0.05, redM, -0.14, 0.02, 0.16);
+  const recBtn = box(0.05, 0.02, 0.05, recBtnMat, -0.14, 0.02, 0.16);
   rec.add(recBtn);
   const playBtn = box(0.05, 0.02, 0.05, greenM, -0.06, 0.02, 0.16);
   rec.add(playBtn);
@@ -174,7 +195,7 @@ export function buildRoom(scene) {
   const micHead = new THREE.Group();
   const barrel = cyl(0.03, 0.3, metalD, 0, 0, 0, 8);
   barrel.rotation.x = Math.PI / 2;
-  const foam = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.035, 0.14, 8), M(0x1c1c1c));
+  const foam = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.035, 0.14, 8), foamMat);
   foam.rotation.x = Math.PI / 2;
   foam.position.z = 0.2;
   micHead.add(barrel, foam);
@@ -221,7 +242,7 @@ export function buildRoom(scene) {
   const dframe = box(1.0, 2.1, 0.12, metalD, 0, 1.05, 0);
   const dpanel = box(0.82, 1.95, 0.08, metal, 0, 0.98, 0.03);
   door.add(dframe, dpanel);
-  const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.02, 6, 14), M(0x555a55));
+  const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.02, 6, 14), wheelMat);
   wheel.position.set(0.15, 1.0, 0.09);
   door.add(wheel);
   for (let i = 0; i < 3; i++) {
@@ -384,11 +405,58 @@ export function buildRoom(scene) {
   stain.position.set(-1.2, H - 0.01, -1.0);
   room.add(stain);
 
+  // ---------- trash can with a buzzing cassette inside ----------
+  const trash = new THREE.Group();
+  const canMat = new THREE.MeshLambertMaterial({ map: texMetal('#3f4a3c') });
+  const can = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.17, 0.36, 10, 1, true), canMat);
+  can.material.side = THREE.DoubleSide;
+  can.position.y = 0.18;
+  can.castShadow = true;
+  const canBottom = cyl(0.17, 0.02, canMat, 0, 0.01, 0);
+  const canRim = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.012, 5, 12), metalD);
+  canRim.rotation.x = Math.PI / 2;
+  canRim.position.y = 0.36;
+  const canDark = new THREE.Mesh(new THREE.CircleGeometry(0.19, 10),
+    new THREE.MeshBasicMaterial({ color: 0x050505 }));
+  canDark.rotation.x = -Math.PI / 2;
+  canDark.position.y = 0.3;
+  trash.add(can, canBottom, canRim, canDark);
+  // the cassette, sticking out of the trash
+  const trashTape = new THREE.Group();
+  trashTape.add(box(0.14, 0.025, 0.095, tapeMat, 0, 0, 0));
+  const tl = cyl(0.018, 0.01, blackM, -0.035, 0.015, 0);
+  const tr = cyl(0.018, 0.01, blackM, 0.035, 0.015, 0);
+  trashTape.add(tl, tr);
+  const tapeLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.09, 0.03),
+    new THREE.MeshBasicMaterial({ color: 0x8a2f24 }));
+  tapeLabel.rotation.x = -Math.PI / 2;
+  tapeLabel.position.y = 0.014;
+  trashTape.add(tapeLabel);
+  trashTape.position.set(0.05, 0.37, 0.02);
+  trashTape.rotation.z = 0.5;
+  trashTape.rotation.y = 0.4;
+  trash.add(trashTape);
+  trash.position.set(-1.7, 0, -1.3);
+  trash.userData.type = 'trash';
+  room.add(trash);
+  // crumpled paper next to it
+  const crum = new THREE.Mesh(new THREE.IcosahedronGeometry(0.05, 0), M(0x8a8268));
+  crum.position.set(-1.45, 0.05, -1.15);
+  room.add(crum);
+
   scene.add(room);
 
   return {
     room,
-    refs: { dial, needle, micPivot, micHead, reelL, reelR, recLed, figure, door, dpanel, wheel, crtScreens, fluorFix, port, wglass },
-    interactables: { tuner, mic, recorder: rec, radio: radioUnit, door },
+    refs: { dial, fineKnob, needle, micPivot, micHead, reelL, reelR, recLed, figure, door, dpanel, wheel, crtScreens, fluorFix, port, wglass, trashTape },
+    interactables: { tuner, mic, recorder: rec, radio: radioUnit, door, trash },
+    hotspots: {
+      tuner: [dialMat],
+      mic: [foamMat],
+      recorder: [recBtnMat],
+      radio: [radioKnobMat],
+      door: [wheelMat],
+      trash: [tapeMat],
+    },
   };
 }

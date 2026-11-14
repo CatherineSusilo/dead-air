@@ -2,7 +2,7 @@ import { ATTENTION, SOURCES, bus } from '../config.js';
 import { audio } from '../audio/engine.js';
 import { speak, whisper } from '../audio/voice.js';
 import * as sfx from '../audio/sfx.js';
-import { SYS, A, B, X } from './script.js';
+import { SYS, A, B, X, TAPE } from './script.js';
 
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 
@@ -29,6 +29,7 @@ export class Director {
     this.beat = 'boot';
     this.over = false;
     this.shake = 0;
+    this.doorArmed = false;   // once the mimic speaks, the door can be opened
 
     this._timers = [];
     this._loops = [];
@@ -127,12 +128,45 @@ export class Director {
     this._loopAt(2.6, () => sfx.emitBreathPulse(em.input, 0.4));
   }
 
+  _spawnTrash() {
+    // the trash can plays a dirty shortwave hiss — findable with the mic
+    const em = this.mic.spawnEmitter('trash', SOURCES.trash.world, { roomLevel: 0.3, micLevel: 1.3 });
+    this._trashStatic = sfx.dirtyStaticInto(em.input, 0.4);
+    this._loopAt(0.55, () => { if (Math.random() < 0.55) sfx.emitPop(em.input, 0.09); });
+  }
+
+  // player pulls the cassette out of the trash can
+  pickupTape() {
+    if (this._flags.gotTape || this.over) return;
+    this._flags.gotTape = true;
+    this.refs.trashTape.visible = false;
+    this._trashStatic?.stop();
+    this.mic.removeEmitter('trash');
+    const tape = {
+      id: this.recorder.tapes.length + 1,
+      signal: 'stranger',
+      label: 'FOUND TAPE — SUB3',
+      line: TAPE.line,
+      timbre: 'B',
+      hidden: true,
+      hiddenLine: TAPE.hiddenLine,
+      phone: true,
+      found: true,
+      duration: 40,
+    };
+    this.recorder.tapes.push(tape);
+    this.hud.addTape(tape);
+    this.add(ATTENTION.PICKUP, 'PICKUP');
+    this.hud.print('sys', '> CASSETTE RECOVERED. HANDWRITTEN LABEL: "DO NOT PLAY"');
+  }
+
   // ---------- main flow ----------
   async start() {
     for (const line of SYS.boot) {
       await this.hud.print('sys', `> ${line}`);
       await sleep(0.6);
     }
+    this._spawnTrash();
     await sleep(1);
     await this._say('src-a', A.greeting, 'A');
     await sleep(1.5);
@@ -185,6 +219,13 @@ export class Director {
     tape.hidden = true;
     this._flags.playedOnce = true;
     this._after(1.5, () => this.hud.markTapeHidden(tape));
+    if (tape.found) {
+      // control notices the contraband tape
+      this._after(6, () => {
+        this.hud.print('sys', '> UNREGISTERED MEDIA DETECTED ON DECK — CONTENTS CLASSIFIED AS HOAX');
+        this._after(3, () => this._say('src-a', 'DISPOSE OF RECOVERED MEDIA. TRUST ONLY FACILITY TRAFFIC.', 'A'));
+      });
+    }
     if (this.beat === 'record' && !this._flags.recDone) {
       this._flags.recDone = true;
       this._after(4, () => this._recDone());
@@ -235,6 +276,7 @@ export class Director {
     await this._say('src-x', A.mimic, 'X');
     await sleep(1.5);
     await this._say('src-x', X.mimicB, 'X');
+    this.doorArmed = true;   // it's asking. the door will open if the player clicks it
     sfx.doorCreak(SOURCES.door.bearing);
     await sleep(2);
     this._figureAtWindow(4);
@@ -247,7 +289,31 @@ export class Director {
     whisper(X.whisper2, { gain: 0.5, pan: 0.9, rate: 0.5 });
     whisper(X.whisper1, { gain: 0.4, pan: -0.9, rate: 0.5, when: 1.2 });
     await sleep(3.2);
-    bus.emit('gameover', 'dead');
+    if (!this.over) bus.emit('gameover', 'dead');
+  }
+
+  // the player did what the mimic asked — noise attack, SIGNAL LOST
+  async openDoor() {
+    if (this.over) return;
+    this.over = true;
+    this._flags.doorAnim = true;
+    sfx.doorCreak(SOURCES.door.bearing);
+    await sleep(0.9);
+    this.lighting.kill();
+    this.lighting.redAlert(true);
+    // it's in the doorway now
+    const f = this.refs.figure;
+    f.position.set(-1.5, 0, -2.55);
+    f.rotation.y = 0;
+    f.visible = true;
+    sfx.noiseScream();
+    this._glitchPulse(1);
+    this.hud.scareFlash(1.6);
+    this.shake = 1;
+    whisper(X.door, { gain: 0.6, rate: 0.4, when: 0.35 });
+    this.hud.print('src-x', '> SIGNAL OVERRUN — CARRIER UNRESOLVED');
+    await sleep(2.3);
+    bus.emit('gameover', 'door');
   }
 
   _checkQuiet(dt) {
@@ -265,6 +331,11 @@ export class Director {
   }
 
   update(dt, probe) {
+    // door panel slides open during the fail sequence (runs even after `over`)
+    if (this._flags.doorAnim) {
+      const p = this.refs.dpanel;
+      if (p.position.x < 0.72) p.position.x += dt * 0.9;
+    }
     if (this.over) return;
 
     // player may already be parked on the band when the directive arrives —
@@ -283,6 +354,8 @@ export class Director {
     this._glitch = Math.max(0, this._glitch - dt * 1.4);
     this.postfx.setGlitch(this._glitch + Math.min(0.15, this.attention / 900));
     this.shake = Math.max(0, this.shake - dt * 0.8);
+    // attention lingers longer once it's really listening
+    if (this.level >= 3) this.attention = Math.max(this.attention, 30);
 
     // timers
     for (let i = this._timers.length - 1; i >= 0; i--) {

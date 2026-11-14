@@ -34,7 +34,7 @@ const basePitch = camera.rotation.x;
 let yawOff = 0, pitchOff = 0;
 
 // ---------- world ----------
-const { refs, interactables } = buildRoom(scene);
+const { refs, interactables, hotspots } = buildRoom(scene);
 const lighting = buildLighting(scene);
 const dust = buildDust(scene);
 const postfx = setupPostFX(renderer, scene, camera);
@@ -59,11 +59,17 @@ const PROMPTS = {
   recorder: '<b>RECORDER</b> — [R] rec · [P] play',
   radio: '<b>RADIO</b> — [T] transmit',
   door: '<b>DOOR</b> — sealed. sub-level access only',
+  doorArmed: '<b>DOOR</b> — the wheel turns. open it? [CLICK]',
+  trash: '<b>TRASH CAN</b> — something is hissing in there. [F] or click to take it',
 };
 
 const ray = new THREE.Raycaster();
 const center = new THREE.Vector2(0, 0);
-const hitList = [interactables.tuner, interactables.mic, interactables.recorder, interactables.radio, interactables.door];
+const hitList = [
+  interactables.tuner, interactables.mic, interactables.recorder,
+  interactables.radio, interactables.door, interactables.trash,
+];
+let hoverType = null;
 
 function typeOf(obj) {
   let o = obj;
@@ -79,6 +85,10 @@ addEventListener('keydown', (e) => {
   if (k === 'p') recorder.playLast();
   if (k === ' ') { e.preventDefault(); recorder.stopPlayback(); recorder.stopRecord(); }
   if (k === 't') bus.emit('transmit');
+  if (k === 'f') {
+    if (hoverType === 'trash') director?.pickupTape();
+    else if (hoverType === 'door' && director?.doorArmed) director?.openDoor();
+  }
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
@@ -92,6 +102,8 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   const hit = ray.intersectObjects(hitList, true)[0];
   const t = hit && typeOf(hit.object);
   if (t === 'tuner' || t === 'mic') dragTarget = t;
+  else if (t === 'trash') director?.pickupTape();
+  else if (t === 'door' && director?.doorArmed) director?.openDoor();
 });
 addEventListener('mouseup', () => { dragTarget = null; });
 addEventListener('mousemove', (e) => {
@@ -127,9 +139,15 @@ bus.on('gameover', (kind) => {
   over = true;
   document.exitPointerLock?.();
   const end = document.getElementById('end-screen');
-  document.getElementById('end-text').textContent = kind === 'survived'
-    ? '06:00 — SHIFT COMPLETE. YOU STOPPED LISTENING.'
-    : 'IT HEARD YOU.';
+  const txt = document.getElementById('end-text');
+  if (kind === 'survived') {
+    txt.textContent = '06:00 — SHIFT COMPLETE. YOU STOPPED LISTENING.';
+  } else if (kind === 'door') {
+    txt.textContent = 'SIGNAL LOST';
+    end.classList.add('loss');
+  } else {
+    txt.textContent = 'IT HEARD YOU.';
+  }
   end.classList.add('show');
   requestAnimationFrame(() => end.classList.add('visible'));
 });
@@ -170,12 +188,32 @@ function tick() {
     recorder.update(dt);
     director?.update(dt, probe);
 
-    // hover prompt
+    // hover prompt + hotspot highlight + lean-in
     if (!over) {
       ray.setFromCamera(center, camera);
       const hit = ray.intersectObjects(hitList, true)[0];
-      const tp = hit && hit.distance < 4.2 ? typeOf(hit.object) : null;
-      hud.prompt(tp ? PROMPTS[tp] : null);
+      hoverType = hit && hit.distance < 4.2 ? typeOf(hit.object) : null;
+      if (hoverType === 'trash' && director?._flags.gotTape) hoverType = null;
+      let promptKey = hoverType;
+      if (hoverType === 'door' && director?.doorArmed) promptKey = 'doorArmed';
+      if (hoverType === 'trash' && director?._flags.gotTape) promptKey = null;
+      hud.prompt(promptKey ? PROMPTS[promptKey] : null);
+
+      // pulse the physical part you can grab
+      for (const [type, mats] of Object.entries(hotspots)) {
+        const on = type === hoverType;
+        for (const m of mats) {
+          const k = on ? 0.14 + Math.sin(t * 7) * 0.07 : 0;
+          m.emissive.setRGB(k * 0.55, k, k * 0.5);
+        }
+      }
+
+      // lean in toward whatever you're about to use
+      const targetFov = dragTarget ? 46 : hoverType ? 53 : 58;
+      camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 7);
+      if (Math.abs(camera.fov - targetFov) > 0.01) camera.updateProjectionMatrix();
+    } else {
+      hud.prompt(null);
     }
 
     // CRT screens: monitor1 = tuner waveform when locked else noise

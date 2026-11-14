@@ -34,5 +34,13 @@ export const X = {  // THE THING
   whisper1: 'i can do the voice too',
   whisper2: 'the more you listen, the closer i get',
   whisper3: 'you have such a quiet room',
+  door: 'thank you for listening',
   mimicB: 'It\'s me. The technician. Open the door. I\'m so cold out here.',
+};
+
+// the cassette in the trash can — the previous technician's last message,
+// recorded like a phone memo. This is where her story actually starts.
+export const TAPE = {
+  line: 'If anyone finds this — day nine, I think. They sealed sub-level three and station control kept answering. It repeats things. It learned my voice off the tapes. Do not answer it. Do not record it. Whatever it asks: keep the door shut.',
+  hiddenLine: 'i am still down here. it wears me now.',
 };

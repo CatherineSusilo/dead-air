@@ -1,7 +1,7 @@
 import { audio } from '../audio/engine.js';
 import { bus } from '../config.js';
 import { radio } from '../audio/radio.js';
-import { tapeHiss } from '../audio/sfx.js';
+import { tapeHiss, phoneBeep } from '../audio/sfx.js';
 import { speak, whisper } from '../audio/voice.js';
 
 // Cassette recorder. Recording captures whatever the tuner is locked onto —
@@ -82,9 +82,16 @@ export class Recorder {
     bus.emit('attention', 'PLAYBACK');
     bus.emit('playback', tape);
 
-    const base = speak(tape.line || '...', {
-      timbre: tape.timbre, gain: tape.line ? 0.5 : 0.15, rate: 0.92,
-    });
+    let base;
+    if (tape.phone) {
+      // found tape — answering-machine style: beep, then the message
+      phoneBeep();
+      base = 0.8 + speak(tape.line || '...', { timbre: tape.timbre, gain: 0.6, when: 0.8, rate: 0.95 });
+    } else {
+      base = speak(tape.line || '...', {
+        timbre: tape.timbre, gain: tape.line ? 0.5 : 0.15, rate: 0.92,
+      });
+    }
     const total = Math.max(base, tape.duration * 0.6);
     // hidden layer — the part you couldn't hear live
     if (tape.hidden) {
