@@ -58,4 +58,9 @@ export const LINES = {
   b_outside:  { cls: 'src-b', timbre: 'B', text: B.outside },
   x_mimicb:   { cls: 'src-x', timbre: 'X', text: X.mimicB },  // her words, wrong voice
   b_tape:     { cls: 'src-b', timbre: 'B', text: TAPE.line },
+  // THE FINAL MOMENT
+  end_thanks:  { cls: 'src-a', timbre: 'A', text: 'TASK COMPLETE. THANK YOU FOR YOUR COOPERATION.' },
+  end_onemore: { cls: 'src-a', timbre: 'A', text: 'ONE MORE THING. PLEASE STOP MAKING NOISE.', corrupt: 0.6 },
+  end_rec:     { cls: 'src-x', timbre: 'X', text: 'YOU CAN STOP RECORDING NOW.' },
+  end_room:    { cls: 'src-x', timbre: 'X', text: "I'M ALREADY IN THE ROOM." },
 };

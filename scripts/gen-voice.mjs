@@ -38,6 +38,12 @@ const LINES = [
   { id: 'x_mimicb',   v: SARAH, fx: 'radio', t: "It's me. The technician. Open the door. I'm so cold out here." },
   // whispered over the open door
   { id: 'x_door',     v: GEORGE, fx: null, t: '[whispers] thank you for listening' },
+  // THE FINAL MOMENT — the shift ends itself
+  { id: 'end_thanks', v: DANIEL, fx: 'radio', t: 'Task complete. Thank you for your cooperation.' },
+  { id: 'end_onemore',v: DANIEL, fx: 'radio', t: 'One more thing. Please stop making noise.' },
+  // your own voice, played back at you — it was never yours
+  { id: 'end_rec',    v: GEORGE, fx: 'radio', t: 'You can stop recording now.' },
+  { id: 'end_room',   v: GEORGE, fx: null, t: "[whispers] I'm already in the room." },
 ];
 
 const client = new ElevenLabsClient();

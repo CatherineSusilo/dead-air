@@ -289,10 +289,10 @@ export function buildRoom(scene) {
   const legR = box(0.09, 0.75, 0.1, figMat, 0.1, 0.38, 0);
   // red eyes — the only part of it that catches light
   const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2010, toneMapped: false });
-  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.024, 6, 5), eyeMat);
-  eyeL.position.set(-0.045, 1.76, 0.08);
-  const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.024, 6, 5), eyeMat);
-  eyeR.position.set(0.045, 1.76, 0.08);
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 5), eyeMat);
+  eyeL.position.set(-0.05, 1.76, 0.08);
+  const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 5), eyeMat);
+  eyeR.position.set(0.05, 1.76, 0.08);
   // faint red glow bleeding off the eyes
   const eyeGlow = new THREE.PointLight(0xcc1005, 1.1, 1.4, 1.8);
   eyeGlow.position.set(0, 1.72, 0.15);

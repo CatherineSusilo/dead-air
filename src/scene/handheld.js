@@ -220,6 +220,8 @@ export function makeHandheld(camera) {
   return {
     group: dev,
     show(on) { S.wantOpen = on; },
+    // it's on you — the unit falls out of your hands, this frame
+    drop() { S.wantOpen = false; S.open = 0; dev.visible = false; },
     setFreq(f) { if (Math.abs(f - S.freq) > 0.005) { S.freq = f; S.dirty = true; } },
     setSignal(c) { if (Math.abs(c - S.sig) > 0.02) { S.sig = c; S.dirty = true; } },
     setMic(deg, s) { if (Math.abs(deg - S.micDeg) > 0.5 || Math.abs(s - S.micSig) > 0.02) { S.micDeg = deg; S.micSig = s; S.dirty = true; } },
