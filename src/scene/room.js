@@ -297,6 +297,9 @@ export function buildRoom(scene) {
   const eyeGlow = new THREE.PointLight(0xcc1005, 1.1, 1.4, 1.8);
   eyeGlow.position.set(0, 1.72, 0.15);
   figure.add(torso, head, armL, armR, legL, legR, eyeL, eyeR, eyeGlow);
+  // ambient appearances show eyes only — the body stays swallowed by dark
+  figure.userData.body = [torso, head, armL, armR, legL, legR];
+  figure.userData.eyes = [eyeL, eyeR, eyeGlow];
   figure.visible = false;
   room.add(figure);
 

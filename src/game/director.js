@@ -88,6 +88,13 @@ export class Director {
     this.attention = Math.min(ATTENTION.MAX, this.attention + n);
     this._checkLevels();
 
+    // the final moment is a test: "please stop making noise" is literal.
+    // any equipment noise during the ending and it finds you in the dark.
+    if (this.beat === 'ending' && n > 0 && !this._flags.scripted && !this._flags.endNoisy) {
+      this._flags.endNoisy = true;
+      sfx.metalScratch(SOURCES.behind.bearing, 0.8, 0, 1.2); // it moved closer
+    }
+
     // the silence task — every noise resets the clock
     const task = TASKS[this.taskIdx];
     if (this.beat === 'tasks' && task?.survive && NOISY.has(reason)) {
@@ -186,6 +193,7 @@ export class Director {
     const cp = this.camera.position;
     const dir = new THREE.Vector3();
     this.camera.getWorldDirection(dir);
+    this._figureFull();
     f.position.copy(cp).addScaledVector(dir, 0.85);
     f.position.y = cp.y - 1.72;
     f.lookAt(cp.x, cp.y, cp.z);
@@ -218,6 +226,7 @@ export class Director {
     const cp = this.camera.position;
     const dir = new THREE.Vector3();
     this.camera.getWorldDirection(dir);
+    this._figureFull();
     f.position.copy(cp).addScaledVector(dir, 0.62);
     f.position.y = cp.y - 1.72;
     f.visible = true;
@@ -250,14 +259,21 @@ export class Director {
     bus.emit('gameover', 'timeout');
   }
 
+  // ambient sightings show eyes only — it stays swallowed by the dark
+  _figureEyesOnly() { this.refs.figure.userData.body?.forEach((m) => { m.visible = false; }); }
+  _figureFull()     { this.refs.figure.userData.body?.forEach((m) => { m.visible = true; }); }
+
   _figureAtWindow(seconds) {
     const f = this.refs.figure;
+    this._figureEyesOnly();
     f.position.set(1.15, 0.28, -2.868);
     f.rotation.y = 0;
     f.visible = true;
     sfx.sting(0.7);
     this._glitchPulse(0.25);
-    this._after(seconds, () => { if (!this._lunge) f.visible = false; });
+    this._after(seconds, () => {
+      if (!this._lunge && !this._kill) { f.visible = false; this._figureFull(); }
+    });
   }
 
   _spawnBreather(id, world) {
@@ -375,8 +391,10 @@ export class Director {
     this._scratch?.setLevel(0);
     await sleep(2.5);
 
-    // the radio clicks on by itself
+    // the radio clicks on by itself — not the player's noise
+    this._flags.scripted = true;
     this.tuner.setFreq(87.4);
+    this._flags.scripted = false;
     sfx.transmitBeep();
     await sleep(1.0);
     const d1 = await this._say('end_thanks');
@@ -387,6 +405,7 @@ export class Director {
     this._glitchPulse(0.2);
     await sleep(2.4);
     const d2 = await this._say('end_onemore');
+    this.hud.setHint('do not touch anything. it is listening.');
     await sleep(d2 + 1.6);
 
     // breathing. the deck arms itself — no operator input.
@@ -407,8 +426,27 @@ export class Director {
     this._tapeHiss?.stop();
     this.refs.recLed.material.color.set(0x220505);
     this.hud.setRec('STOP', '');
-    await sleep(2.6);   // held in the dark — then it comes
-    this._monsterKill();
+    await sleep(3.2);   // held in the dark — it's deciding
+
+    // it looks for you in the black. if you made even one sound since
+    // it told you to stop, it knows exactly where you are.
+    const f = this.refs.figure;
+    this._figureEyesOnly();
+    f.position.set(-1.5, 0, -2.45);
+    f.lookAt(this.camera.position.x, 1.76, this.camera.position.z);
+    f.visible = true;
+    await sleep(2.4);
+
+    if (this._flags.endNoisy) {
+      this._monsterKill();
+      return;
+    }
+    // you stayed silent. it leaves with the lights.
+    f.visible = false;
+    this._figureFull();
+    await sleep(1.4);
+    this.over = true;
+    bus.emit('gameover', 'survived');
   }
 
   // the deadline hit zero — it reached you
@@ -467,7 +505,8 @@ export class Director {
   }
 
   onLock(signalId, clarity) {
-    if (this.over || clarity < 0.55) return;
+    // during the ending the radio locks itself — not the player's noise
+    if (this.over || clarity < 0.55 || this.beat === 'ending') return;
     this.add(ATTENTION.LOCK, 'LOCK');
     if (signalId === 'whisper' && !this._flags.whisperFound) {
       this._flags.whisperFound = true;
