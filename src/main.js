@@ -6,12 +6,15 @@ import { startAmbience } from './audio/sfx.js';
 import { buildRoom } from './scene/room.js';
 import { buildLighting } from './scene/lighting.js';
 import { buildDust } from './scene/dust.js';
+import { makeHandheld } from './scene/handheld.js';
 import { setupPostFX } from './postfx/horror.js';
 import { HUD } from './ui/hud.js';
 import { Tuner } from './equipment/tuner.js';
 import { DirectionalMic } from './equipment/mic.js';
 import { Recorder } from './equipment/recorder.js';
 import { Director } from './game/director.js';
+
+const TRAILER = new URLSearchParams(location.search).has('trailer');
 
 // ---------- renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -40,6 +43,9 @@ const dust = buildDust(scene);
 const postfx = setupPostFX(renderer, scene, camera);
 
 const hud = new HUD();
+scene.add(camera);
+const handheld = makeHandheld(camera);
+hud.attachDevice(handheld);
 const tuner = new Tuner(refs, hud);
 const mic = new DirectionalMic(refs, hud);
 const recorder = new Recorder(refs, hud);
@@ -48,6 +54,17 @@ let director = null;
 let ambience = null;
 let running = false;
 let over = false;
+
+// Debug/testing handle — also the trailer's control surface (src/trailer.js).
+window.__da = {
+  get director() { return director; },
+  tuner, mic, recorder, refs, handheld, hud, lighting, postfx, camera, radio, audio, bus,
+  startGame,
+  setLook(yaw, pitch) { yawOff = yaw; pitchOff = pitch; },
+  pokeUse() { lastUse = clock.elapsedTime; },
+  forceConsole: false,
+  trailer: TRAILER,
+};
 
 // ---------- input ----------
 const keys = new Set();
@@ -122,31 +139,37 @@ addEventListener('mousemove', (e) => {
 });
 
 // ---------- start / end ----------
-document.getElementById('begin-btn').addEventListener('click', () => {
+function startGame() {
   document.getElementById('start-screen').classList.add('hidden');
   audio.start();
   audio.resume();
   ambience = startAmbience();
   tuner.power(true);
   tuner._syncVisual();
-  director = new Director({ hud, tuner, mic, recorder, refs, lighting, postfx, ambience });
-  window.__da = { director, tuner, mic, recorder, refs }; // debug/testing handle
+  director = new Director({ hud, tuner, mic, recorder, refs, lighting, postfx, ambience, camera });
   running = true;
-  renderer.domElement.requestPointerLock();
-  setTimeout(() => director.start(), 1500);
-});
+  if (!TRAILER) {
+    renderer.domElement.requestPointerLock();
+    setTimeout(() => director.start(), 1500);
+  }
+}
+document.getElementById('begin-btn').addEventListener('click', startGame);
 
 document.getElementById('restart-btn').addEventListener('click', () => location.reload());
 
 bus.on('gameover', (kind) => {
   over = true;
   document.exitPointerLock?.();
+  if (TRAILER) return; // trailer.js owns the outro
   const end = document.getElementById('end-screen');
   const txt = document.getElementById('end-text');
   if (kind === 'survived') {
     txt.textContent = '06:00 — SHIFT COMPLETE. YOU STOPPED LISTENING.';
   } else if (kind === 'door') {
     txt.textContent = 'SIGNAL LOST';
+    end.classList.add('loss');
+  } else if (kind === 'timeout') {
+    txt.textContent = 'IT FOUND YOU.';
     end.classList.add('loss');
   } else {
     txt.textContent = 'IT HEARD YOU.';
@@ -205,7 +228,8 @@ function tick() {
       // the console pops up to your face while you're working it
       const wantConsole =
         CONSOLE_TYPES.has(hoverType) || !!dragTarget ||
-        (t - lastUse < 2.5) || director?.beat === 'tune';
+        (t - lastUse < 2.5) || director?.beat === 'tasks' ||
+        window.__da?.forceConsole;
       hud.showConsole(wantConsole);
 
       // pulse the physical part you can grab
@@ -231,9 +255,19 @@ function tick() {
 
     lighting.update(dt);
     dust.update(t);
+    handheld.update(dt, t);
     postfx.setTime(t);
   }
 
   postfx.composer.render();
 }
 tick();
+
+// Trailer mode (?trailer): hide the start screen instantly and hand control
+// to the cinematic timeline, which drives the real game systems and records.
+if (TRAILER) {
+  const s = document.getElementById('start-screen');
+  s.classList.add('hidden');
+  s.style.display = 'none';
+  import('./trailer.js').then((m) => m.runTrailer());
+}

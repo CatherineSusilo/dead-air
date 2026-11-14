@@ -1,6 +1,7 @@
+import * as THREE from 'three';
 import { ATTENTION, SOURCES, bus } from '../config.js';
 import { audio } from '../audio/engine.js';
-import { speak, whisper, playLine } from '../audio/voice.js';
+import { speak, whisper, playLine, cutSpeech } from '../audio/voice.js';
 import * as sfx from '../audio/sfx.js';
 import { SYS, X, TAPE, LINES } from './script.js';
 
@@ -13,15 +14,32 @@ const HIDDEN_LINES = [
   'that voice is not mine anymore',
 ];
 
-const HINTS = {
-  tune:   'hold [D] — bring the needle onto the red tick at 87.4',
-  locate: 'rotate the mic [Q]/[E] toward the sound — the meter peaks when aimed',
-  record: '[R] record 2s+ of traffic, then [P] to play it back',
-  free:   'monitor the band. every sound you make, it hears',
-};
+// The shift is six tasks. Each one has a clock. Run out of time and the
+// scratching in the walls stops being in the walls.
+const TASKS = [
+  { id: 'tune',   label: 'TUNE THE RADIO TO 87.4',          time: 75,
+    hint: 'hold [D] or drag the dial — line the needle up with the red tick',
+    line: 'a_tune', done: 'a_lock' },
+  { id: 'locate', label: 'FIND THE NOISE — AIM THE MIC AT IT', time: 60,
+    hint: 'rotate the mic [Q]/[E] — hold it on the loudest sound',
+    line: 'a_mictask', done: 'a_micdone' },
+  { id: 'record', label: 'RECORD A TAPE',                    time: 50,
+    hint: 'press [R] — hold it 2 seconds — press [R] again',
+    line: 'a_rectask' },
+  { id: 'play',   label: 'PLAY THE TAPE BACK',               time: 35,
+    hint: 'press [P] on the deck — listen to what it caught' },
+  { id: 'found',  label: 'PLAY THE TAPE IN THE TRASH CAN',   time: 70,
+    hint: 'aim at the trash can — [F] or click to grab it — then [P]',
+    done: 'a_hoax' },
+  { id: 'quiet',  label: 'STAY SILENT. DO NOT TOUCH ANYTHING.', time: 30, survive: true,
+    hint: 'no keys. no dial. it is listening for you right now' },
+];
+
+// which noise counts as a violation during the silence task
+const NOISY = new Set(['SCAN', 'RECORD', 'PLAYBACK', 'TRANSMIT', 'PICKUP']);
 
 export class Director {
-  constructor({ hud, tuner, mic, recorder, refs, lighting, postfx, ambience }) {
+  constructor({ hud, tuner, mic, recorder, refs, lighting, postfx, ambience, camera }) {
     this.hud = hud;
     this.tuner = tuner;
     this.mic = mic;
@@ -30,22 +48,30 @@ export class Director {
     this.lighting = lighting;
     this.postfx = postfx;
     this.ambience = ambience;
+    this.camera = camera;
 
     this.attention = 0;
     this.level = 0;
     this.beat = 'boot';
     this.over = false;
     this.shake = 0;
-    this.doorArmed = false;   // once it's outside, the door can be opened
+    this.doorArmed = false;
+
+    this.taskIdx = -1;       // which of the 6 tasks we're on
+    this.taskLeft = 0;       // seconds left on the current task
+    this.elapsed = 0;        // total shift time — the room dies slowly
 
     this._timers = [];
     this._loops = [];
     this._flags = {};
     this._quietTime = 0;
     this._glitch = 0;
+    this._scratch = null;    // the deadline scratch bed
+    this._lunge = null;      // the entity coming for you
 
     bus.on('attention', (reason) => this.add(ATTENTION[reason] ?? 0, reason));
     bus.on('playback', (tape) => this._onPlayback(tape));
+    bus.on('tapeRecorded', (tape) => this._onTape(tape));
     bus.on('transmit', () => this._onTransmit());
   }
 
@@ -54,6 +80,18 @@ export class Director {
     if (this.over) return;
     this.attention = Math.min(ATTENTION.MAX, this.attention + n);
     this._checkLevels();
+
+    // the silence task — every noise resets the clock
+    const task = TASKS[this.taskIdx];
+    if (this.beat === 'tasks' && task?.survive && NOISY.has(reason)) {
+      this.taskLeft = task.time;
+      if (!this._flags.quietWarn) {
+        this._flags.quietWarn = true;
+        this.hud.print('sys', '> IT HEARD THAT. THE CLOCK RESETS.');
+        sfx.sting(0.5);
+        this._after(6, () => { this._flags.quietWarn = false; });
+      }
+    }
   }
 
   _checkLevels() {
@@ -73,10 +111,12 @@ export class Director {
   }
 
   _enterLevel(lvl) {
-    if (this.beat !== 'free') return;
+    if (this.beat === 'boot' || this.beat === 'finale') return;
     if (lvl === 1 && !this._flags.l1) {
       this._flags.l1 = true;
       this.hud.print('sys', '> ADVISORY: ACOUSTIC ACTIVITY DETECTED ON YOUR LEVEL');
+      sfx.metalClang((Math.random() - 0.5) * 140, 2.5, 0, 0.3);
+      this._glitchPulse(0.15);
       this._loopAt(4 + Math.random() * 4, () => {
         sfx.metalClang((Math.random() - 0.5) * 140, 2.5, 0, 0.25);
         this._glitchPulse(0.12);
@@ -85,7 +125,7 @@ export class Director {
     if (lvl === 2) {
       this._flags.l2 = true;
       this.hud.print('sys', '> ADVISORY: MOVEMENT DETECTED — CORRIDOR B');
-      this.hud.print('sys', '> UNREGISTERED CARRIER BLEEDING ONTO BAND — IGNORE');
+      sfx.sting(0.5);
       this._loopAt(12, () => {
         sfx.footstepWalk(-70, 60, 2.2, 8, 0.7);
       });
@@ -93,10 +133,10 @@ export class Director {
     }
     if (lvl === 3) {
       this._flags.l3 = true;
+      sfx.sting(1);
       sfx.knock(SOURCES.door.bearing, 1.2, 0.5, 3);
       this._figureAtWindow(5);
       this.hud.print('sys', '> WARNING: PERIMETER SENSOR TRIP — DOOR 7');
-      // her only live broadcast — it costs attention to answer with your ears
       this._say('b_outside');
       this.doorArmed = true;   // it's knocking. the wheel will turn if you let it
       this._loopAt(16, () => sfx.knock(SOURCES.door.bearing, 1.2, 0, 2 + (Math.random() * 2 | 0)));
@@ -111,7 +151,9 @@ export class Director {
     const signal = L.timbre === 'A' ? 'control' : L.timbre === 'B' ? 'stranger' : 'unknown';
     this.recorder.captureContext({ text: L.text, timbre: L.timbre, ttsId: id, signal });
     const p = this.hud.print(L.cls, `> ${L.text}`);
-    const dur = await playLine(id, { timbre: L.timbre, gain: 0.95 });
+    // control's voice rots as attention climbs — the carrier is degrading
+    const corrupt = L.timbre === 'A' ? Math.min(0.9, this.attention / 110) : 0;
+    const dur = await playLine(id, { timbre: L.timbre, gain: 0.95, corrupt });
     if (!dur) speak(L.text, { timbre: L.timbre, gain: 0.85 }); // synth fallback
     return p;
   }
@@ -128,7 +170,9 @@ export class Director {
     f.position.set(1.15, 0.28, -2.868);
     f.rotation.y = 0;
     f.visible = true;
-    this._after(seconds, () => { f.visible = false; });
+    sfx.sting(0.7);
+    this._glitchPulse(0.25);
+    this._after(seconds, () => { if (!this._lunge) f.visible = false; });
   }
 
   _spawnBreather(id, world) {
@@ -138,7 +182,6 @@ export class Director {
   }
 
   _spawnTrash() {
-    // the trash can plays a dirty shortwave hiss — findable with the mic
     const em = this.mic.spawnEmitter('trash', SOURCES.trash.world, { roomLevel: 0.3, micLevel: 1.3 });
     this._trashStatic = sfx.dirtyStaticInto(em.input, 0.4);
     this._loopAt(0.55, () => { if (Math.random() < 0.55) sfx.emitPop(em.input, 0.09); });
@@ -168,30 +211,116 @@ export class Director {
     this.hud.addTape(tape);
     this.add(ATTENTION.PICKUP, 'PICKUP');
     this.hud.print('sys', '> CASSETTE RECOVERED. HANDWRITTEN LABEL: "DO NOT PLAY"');
-    this.hud.setHint('press [P] on the deck to play what you found');
+    const task = TASKS[this.taskIdx];
+    if (task?.id !== 'found') this.hud.setHint('press [P] on the deck to play what you found');
+  }
+
+  // ---------- the six tasks ----------
+  _startTask(i) {
+    this.taskIdx = i;
+    const task = TASKS[i];
+    this.taskLeft = task.time;
+    this._flags.warned50 = false;
+    this._flags.warned85 = false;
+    this.hud.setObjective(`TASK ${i + 1}/6 — ${task.label}`);
+    this.hud.setHint(task.hint);
+    if (task.line) this._say(task.line);
+
+    if (task.id === 'locate') {
+      const em = this.mic.spawnEmitter('vent', SOURCES.vent.world, { roomLevel: 0.14, micLevel: 1.2 });
+      this._ventLoop = { em, t: 0 };
+      this._flags.aimedTime = 0;
+    }
+    if (task.id === 'record') {
+      // air something odd worth taping — a murmur, no transcript
+      this._after(6, () => {
+        if (TASKS[this.taskIdx]?.id === 'record') {
+          this.recorder.captureContext({ text: 'do not let it count your sounds', timbre: 'X', signal: 'unknown' });
+          speak('do not let it count your sounds', { timbre: 'X', gain: 0.4, rate: 0.75 });
+        }
+      });
+    }
+    if (task.id === 'quiet') {
+      // it starts circling. the whole room is bait.
+      this._spawnBreather('behind', SOURCES.behind.world);
+    }
+  }
+
+  async _completeTask() {
+    const i = this.taskIdx;
+    const task = TASKS[i];
+    this.taskIdx = -1;
+    this._scratch?.setLevel(0);
+    sfx.sting(0.25);
+    this.hud.setHint('');
+    await this.hud.print('sys', `> TASK ${i + 1}/6 COMPLETE`);
+    if (task.done) await this._say(task.done);
+    await sleep(1.1);
+    this.hud.clearLog();   // clean log after task completion
+
+    const next = i + 1;
+    if (next >= TASKS.length) {
+      this._tasksDone();
+    } else {
+      this._startTask(next);
+    }
+  }
+
+  _tasksDone() {
+    this.beat = 'free';
+    this.taskIdx = -1;
+    this.hud.setObjective('ALL TASKS COMPLETE — MONITOR THE BAND');
+    this.hud.setHint('every sound you make, it hears. stay quiet to survive the shift.');
+    this._say('a_recdone');
+    this._after(4, () => this._say('a_pest'));
+    // re-fire any escalation levels crossed during the task phase
+    if (this.level > 0) this._enterLevel(this.level);
+  }
+
+  // the deadline hit zero — it reached you
+  async _deadlineDeath() {
+    if (this.over) return;
+    this.over = true;
+    this._scratch?.setLevel(1);
+    cutSpeech();
+    sfx.sting(1.4);
+    this.lighting.kill();
+    this.lighting.redAlert(true);
+    // it comes through the door at you
+    const f = this.refs.figure;
+    f.position.set(-1.5, 0, -2.55);
+    f.rotation.y = 0;
+    f.visible = true;
+    sfx.doorCreak(SOURCES.door.bearing);
+    this._lunge = { t: 0 };
+    await sleep(0.9);
+    sfx.noiseScream();
+    this._glitchPulse(1);
+    this.hud.scareFlash(1.8);
+    this.shake = 1;
+    await sleep(1.6);
+    bus.emit('gameover', 'timeout');
   }
 
   // ---------- main flow ----------
   async start() {
     for (const line of SYS.boot) {
       await this.hud.print('sys', `> ${line}`);
-      await sleep(0.6);
+      await sleep(0.5);
     }
     this._spawnTrash();
+    this._env = sfx.facilityAmbience();   // wind, drips, pipes, the building
+    this._scratch = sfx.scratchLoop();    // the deadline instrument
     await sleep(1);
     await this._say('a_greeting');
-    await sleep(1.5);
-    this.beat = 'tune';
-    this.hud.setObjective('TUNE RECEIVER TO 87.4 MHZ');
-    this.hud.setHint(HINTS.tune);
-    await this._say('a_tune');
+    await sleep(1.2);
+    this.beat = 'tasks';
+    this._startTask(0);
   }
 
-  // called by main when tuner lock state changes
   onLock(signalId, clarity) {
     if (this.over || clarity < 0.55) return;
     this.add(ATTENTION.LOCK, 'LOCK');
-
     if (signalId === 'whisper' && !this._flags.whisperFound) {
       this._flags.whisperFound = true;
       this.hud.print('src-x', '> (a voice, barely under the static)');
@@ -200,22 +329,12 @@ export class Director {
     }
   }
 
-  async _firstContact() {
-    await sleep(1);
-    await this._say('a_lock');
-    await sleep(1.5);
-    // something bleeds across the band — a voice, almost. not subtitled.
-    this.hud.print('sys', '> CARRIER ANOMALY ON 87.4 — SOURCE UNRESOLVED');
-    speak('he—llo', { timbre: 'X', gain: 0.3, rate: 0.7 });
-    await sleep(2.5);
-    this.beat = 'locate';
-    this.hud.setObjective('LOCATE THE SOUND WITH THE MIC');
-    this.hud.setHint(HINTS.locate);
-    await this._say('a_mictask');
-    // the "anomalous resonance" — a clank loop in the vent
-    const em = this.mic.spawnEmitter('vent', SOURCES.vent.world, { roomLevel: 0.14, micLevel: 1.2 });
-    this._ventLoop = { em, t: 0 };
-    this._flags.aimedTime = 0;
+  _onTape(tape) {
+    if (this.over) return;
+    const task = TASKS[this.taskIdx];
+    if (this.beat === 'tasks' && task?.id === 'record' && tape.duration >= 2) {
+      this._completeTask();
+    }
   }
 
   async _onPlayback(tape) {
@@ -225,27 +344,14 @@ export class Director {
     this._flags.playedOnce = true;
     this._after(1.5, () => this.hud.markTapeHidden(tape));
     if (tape.found) {
-      // control notices the contraband tape
       this._after(6, () => {
         this.hud.print('sys', '> UNREGISTERED MEDIA DETECTED ON DECK — CONTENTS CLASSIFIED AS HOAX');
-        this._after(3, () => this._say('a_hoax'));
       });
     }
-    if (this.beat === 'record' && !this._flags.recDone) {
-      this._flags.recDone = true;
-      this._after(4, () => this._recDone());
-    }
-  }
-
-  async _recDone() {
-    await this._say('a_recdone');
-    await sleep(1);
-    this.beat = 'free';
-    this.hud.setObjective('MONITOR FREQUENCIES. KEEP NOISE DOWN.');
-    this.hud.setHint(HINTS.free);
-    this._say('a_pest');
-    // re-fire any escalation levels crossed during earlier beats
-    if (this.level > 0) this._enterLevel(this.level);
+    const task = TASKS[this.taskIdx];
+    if (this.beat !== 'tasks' || !task) return;
+    if (task.id === 'play' && !tape.found) this._completeTask();
+    if (task.id === 'found' && tape.found) this._completeTask();
   }
 
   _onTransmit() {
@@ -265,7 +371,6 @@ export class Director {
     this.beat = 'finale';
     this.hud.setObjective('STAY QUIET.');
     this.hud.setHint('or open the door. it is asking.');
-    // breathing right behind the chair
     const em = this.mic.spawnEmitter('behind', SOURCES.behind.world, { roomLevel: 0.35, micLevel: 1.4 });
     this._loopAt(1.7, () => sfx.emitBreathPulse(em.input, 0.55));
 
@@ -306,15 +411,17 @@ export class Director {
     if (this.over) return;
     this.over = true;
     this._flags.doorAnim = true;
+    cutSpeech();
     sfx.doorCreak(SOURCES.door.bearing);
     await sleep(0.9);
     this.lighting.kill();
     this.lighting.redAlert(true);
-    // it's in the doorway now
+    // it's in the doorway now — and it comes at you
     const f = this.refs.figure;
     f.position.set(-1.5, 0, -2.55);
     f.rotation.y = 0;
     f.visible = true;
+    this._lunge = { t: 0, slow: true };
     sfx.noiseScream();
     this._glitchPulse(1);
     this.hud.scareFlash(1.6);
@@ -341,30 +448,94 @@ export class Director {
   }
 
   update(dt, probe) {
-    // door panel slides open during the fail sequence (runs even after `over`)
+    this.elapsed += dt;
+
+    // the entity lunge runs even after `over`
+    if (this._lunge) {
+      const f = this.refs.figure;
+      const cp = this.camera.position;
+      this._lunge.t += dt;
+      const speed = this._lunge.slow ? 1.4 + this._lunge.t * 4 : 2.2 + this._lunge.t * 7;
+      this._lungeTarget = this._lungeTarget || new THREE.Vector3();
+      this._lungeTarget.set(cp.x, cp.y - 0.65, cp.z);
+      f.position.lerp(this._lungeTarget, Math.min(1, dt * speed));
+      f.lookAt(cp.x, f.position.y + 0.8, cp.z);
+    }
+
+    // door panel slides open during the fail sequence
     if (this._flags.doorAnim) {
       const p = this.refs.dpanel;
       if (p.position.x < 0.72) p.position.x += dt * 0.9;
     }
     if (this.over) return;
 
-    // player may already be parked on the band when the directive arrives —
-    // accept a held lock, not just a fresh lock event
-    if (this.beat === 'tune' && probe && probe.clarity > 0.55 &&
-        (probe.signal === 'control' || probe.signal === 'stranger')) {
-      this.beat = 'firstcontact';
-      this._firstContact();
+    // ----- task clock: the scratching gets louder as you run out -----
+    const task = TASKS[this.taskIdx];
+    if (this.beat === 'tasks' && task) {
+      this.taskLeft -= dt;
+      const danger = 1 - Math.max(0, this.taskLeft) / task.time;
+      // scratching starts ~40% in for normal tasks; immediately for the
+      // silence task (it circles you while you try not to breathe)
+      const ramp = task.survive ? danger : Math.max(0, (danger - 0.35) / 0.65);
+      this._scratch?.setLevel(ramp * ramp);
+      if (this.taskLeft <= 0) {
+        if (task.survive) { this._completeTask(); return; }
+        this._deadlineDeath();
+        return;
+      }
+      if (danger > 0.5 && !this._flags.warned50) {
+        this._flags.warned50 = true;
+        this.hud.print('sys', '> SCRATCHING IN THE WALLS — CLOSER');
+      }
+      if (danger > 0.82 && !this._flags.warned85) {
+        this._flags.warned85 = true;
+        this.hud.print('sys', '> IT IS AT THE DOOR');
+        sfx.sting(0.7);
+        sfx.metalScratch(SOURCES.door.bearing, 0.8, 0, 2.2);
+      }
+      // countdown in the objective line
+      const s = Math.max(0, Math.ceil(this.taskLeft));
+      this.hud.setObjective(`TASK ${this.taskIdx + 1}/6 — ${task.label} — ${s}s`);
+
+      // per-task completion checks
+      if (task.id === 'tune' && probe && probe.clarity > 0.55 &&
+          (probe.signal === 'control' || probe.signal === 'stranger')) {
+        this._completeTask();
+      }
+      if (task.id === 'locate' && this._ventLoop) {
+        const { em } = this._ventLoop;
+        this._ventLoop.t -= dt;
+        if (this._ventLoop.t <= 0) {
+          this._ventLoop.t = 0.8 + Math.random() * 0.7;
+          sfx.emitClank(em.input, 0.5);
+        }
+        if (em.aim > 0.7) {
+          this._flags.aimedTime += dt;
+          if (this._flags.aimedTime > 1.2) {
+            this.mic.removeEmitter('vent');
+            this._ventLoop = null;
+            this._completeTask();
+          }
+        } else {
+          this._flags.aimedTime = 0;
+        }
+      }
     }
 
     // attention decay
     this.attention = Math.max(0, this.attention - ATTENTION.DECAY_PER_SEC * dt);
     this.lighting.setStress(Math.min(1, this.attention / 90) * 0.85);
 
+    // the room gets darker the longer the shift runs
+    const danger = this.beat === 'tasks' && TASKS[this.taskIdx]
+      ? 1 - Math.max(0, this.taskLeft) / TASKS[this.taskIdx].time : 0;
+    this.lighting.setDarkness(Math.min(0.85,
+      this.elapsed * 0.0035 + this.level * 0.05 + danger * 0.25));
+
     // glitch decay
     this._glitch = Math.max(0, this._glitch - dt * 1.4);
     this.postfx.setGlitch(this._glitch + Math.min(0.15, this.attention / 900));
     this.shake = Math.max(0, this.shake - dt * 0.8);
-    // attention lingers longer once it's really listening
     if (this.level >= 3) this.attention = Math.max(this.attention, 30);
 
     // timers
@@ -378,58 +549,6 @@ export class Director {
       if (lp.t <= 0) { lp.t = lp.interval * (0.7 + Math.random() * 0.6); lp.fn(); }
     }
 
-    // locate beat — check mic aim on the vent
-    if (this.beat === 'locate' && this._ventLoop) {
-      const { em } = this._ventLoop;
-      this._ventLoop.t -= dt;
-      if (this._ventLoop.t <= 0) {
-        this._ventLoop.t = 0.8 + Math.random() * 0.7;
-        sfx.emitClank(em.input, 0.5);
-      }
-      if (em.aim > 0.7) {
-        this._flags.aimedTime += dt;
-        if (this._flags.aimedTime > 1.2) {
-          this.mic.removeEmitter('vent');
-          this._ventLoop = null;
-          this.beat = 'located';
-          this._afterLocate();
-        }
-      } else {
-        this._flags.aimedTime = 0;
-      }
-    }
-
-    // gentle nag if the player stalls on the recording task
-    if (this.beat === 'record') {
-      this._flags.recNag = (this._flags.recNag || 0) + dt;
-      if (this._flags.recNag > 90) {
-        this._flags.recNag = 0;
-        this._say('a_rectask');
-      }
-    }
-
     this._checkQuiet(dt);
-  }
-
-  async _afterLocate() {
-    await this._say('a_micdone');
-    await sleep(1);
-    this.beat = 'record';
-    this.hud.setObjective('RECORD TRAFFIC, THEN PLAY IT BACK');
-    this.hud.setHint(HINTS.record);
-    await this._say('a_rectask');
-    // player may have jumped the gun and already played a tape
-    if (this._flags.playedOnce && !this._flags.recDone) {
-      this._flags.recDone = true;
-      this._after(3, () => this._recDone());
-      return;
-    }
-    // air something odd worth taping — a murmur, no transcript
-    this._after(6, () => {
-      if (this.beat === 'record') {
-        this.recorder.captureContext({ text: 'do not let it count your sounds', timbre: 'X', signal: 'unknown' });
-        speak('do not let it count your sounds', { timbre: 'X', gain: 0.4, rate: 0.75 });
-      }
-    });
   }
 }

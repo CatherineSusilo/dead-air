@@ -313,6 +313,145 @@ export function noiseScream() {
   o.start(t); o.stop(t + 2.5);
 }
 
+// sudden dissonant hit — makes scares "jump out"
+export function sting(intensity = 1) {
+  const c = ctx(), t = c.currentTime;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.9 * intensity, t + 0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+  g.connect(audio.master);
+  for (const fq of [311, 466, 622, 1244]) {  // tritone-ish cluster
+    const o = c.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(fq * (0.97 + Math.random() * 0.06), t);
+    o.frequency.exponentialRampToValueAtTime(fq * 0.5, t + 0.65);
+    const og = c.createGain(); og.gain.value = 0.22;
+    o.connect(og).connect(g);
+    o.start(t); o.stop(t + 0.75);
+  }
+  const nz = audio.noiseSource(false);
+  const nf = c.createBiquadFilter(); nf.type = 'highpass'; nf.frequency.value = 1200;
+  nz.connect(nf).connect(g);
+  nz.start(t); nz.stop(t + 0.5);
+}
+
+// continuous metal-scratching bed for the deadline — setLevel 0..1
+// sounds like something dragging a nail along the other side of the wall
+export function scratchLoop() {
+  const c = ctx();
+  const out = c.createGain(); out.gain.value = 0;
+  out.connect(audio.roomBus);
+
+  const nz = audio.noiseSource(true);
+  const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2100; f.Q.value = 6;
+  const am = c.createGain(); am.gain.value = 0;
+  const lfo = c.createOscillator(); lfo.type = 'sawtooth'; lfo.frequency.value = 3.1;
+  const ld = c.createGain(); ld.gain.value = 0.5;
+  lfo.connect(ld).connect(am.gain);
+  const wander = c.createOscillator(); wander.frequency.value = 0.23;
+  const wd = c.createGain(); wd.gain.value = 700;
+  wander.connect(wd).connect(f.frequency);
+  nz.connect(f).connect(am).connect(out);
+  nz.start(); lfo.start(); wander.start();
+  return {
+    setLevel(v) { out.gain.linearRampToValueAtTime(v * 0.5, c.currentTime + 0.6); },
+    stop() { out.gain.linearRampToValueAtTime(0, c.currentTime + 0.4);
+      setTimeout(() => { try { nz.stop(); lfo.stop(); wander.stop(); } catch {} }, 700); },
+  };
+}
+
+// natural environment sounds leaking in from outside — wind through the
+// intake, water dripping somewhere down the corridor, pipes settling,
+// the whole facility groaning. all random one-shots on timeout chains.
+export function facilityAmbience() {
+  const c = ctx();
+  let alive = true;
+  const timers = [];
+
+  const later = (minS, maxS, fn) => {
+    const loop = () => {
+      if (!alive) return;
+      fn();
+      timers.push(setTimeout(loop, (minS + Math.random() * (maxS - minS)) * 1000));
+    };
+    timers.push(setTimeout(loop, (minS + Math.random() * (maxS - minS)) * 1000));
+  };
+
+  // wind moan — continuous bandpassed noise with a slow swell
+  const wind = audio.noiseSource(true);
+  const wf = c.createBiquadFilter(); wf.type = 'bandpass'; wf.frequency.value = 240; wf.Q.value = 2.2;
+  const wg = c.createGain(); wg.gain.value = 0.014;
+  const wlfo = c.createOscillator(); wlfo.frequency.value = 0.07;
+  const wld = c.createGain(); wld.gain.value = 0.010;
+  wlfo.connect(wld).connect(wg.gain);
+  wind.connect(wf).connect(wg).connect(audio.roomBus);
+  wind.start(); wlfo.start();
+
+  later(2.5, 7, () => {   // water drip — sine plink + reverb tail
+    const t = c.currentTime;
+    const o = c.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(1900 + Math.random() * 1400, t);
+    o.frequency.exponentialRampToValueAtTime(700, t + 0.08);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05 + Math.random() * 0.04, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    const { input, output } = audio.panner(-40 + Math.random() * 90, 3 + Math.random() * 3);
+    o.connect(g).connect(input); output.connect(audio.roomBus); output.connect(audio.reverb);
+    o.start(t); o.stop(t + 0.15);
+  });
+
+  later(4, 11, () => {    // pipe tick — tiny high click, pipes expanding
+    const t = c.currentTime;
+    const nz = audio.noiseSource(false);
+    const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 3400;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+    const { input, output } = audio.panner(-80 + Math.random() * 160, 1.5 + Math.random() * 2);
+    nz.connect(f).connect(g).connect(input); output.connect(audio.roomBus);
+    nz.start(t); nz.stop(t + 0.05);
+  });
+
+  later(18, 40, () => {   // the building groans — slow low gliss
+    const t = c.currentTime;
+    const o = c.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(48 + Math.random() * 20, t);
+    o.frequency.linearRampToValueAtTime(38 + Math.random() * 14, t + 2.4);
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 160;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.09, t + 1.1);
+    g.gain.linearRampToValueAtTime(0.0001, t + 2.6);
+    o.connect(f).connect(g).connect(audio.roomBus);
+    g.connect(audio.reverb);
+    o.start(t); o.stop(t + 2.7);
+  });
+
+  later(25, 55, () => {   // distant rumble swell — far-off machinery or worse
+    const t = c.currentTime;
+    const nz = audio.noiseSource(false);
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 70;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.12, t + 1.6);
+    g.gain.linearRampToValueAtTime(0.0001, t + 3.4);
+    nz.connect(f).connect(g).connect(audio.roomBus);
+    nz.start(t); nz.stop(t + 3.5);
+  });
+
+  later(30, 70, () => metalClang(-100 + Math.random() * 200, 5 + Math.random() * 3, 0, 0.12)); // far clank
+
+  return {
+    stop() {
+      alive = false;
+      timers.forEach(clearTimeout);
+      try { wind.stop(); wlfo.stop(); } catch {}
+    },
+  };
+}
+
 // radio tuning swoop texture while scanning the band
 export function scanSweep() {
   const c = ctx(), t = c.currentTime;

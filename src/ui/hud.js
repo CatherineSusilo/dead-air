@@ -1,5 +1,3 @@
-import { TUNER } from '../config.js';
-
 // DOM HUD: CRT transcript (typewriter), the pop-up console device,
 // prompts, tape log.
 
@@ -12,23 +10,18 @@ export class HUD {
     this.tapeList = document.getElementById('tape-list');
     this.scare = document.getElementById('scare');
 
-    // console device elements
-    this.consoleEl = document.getElementById('console');
-    this.cFreq = document.getElementById('c-freq');
-    this.cNeedle = document.getElementById('c-needle');
-    this.cSig = document.getElementById('c-sig');
-    this.cDial = document.getElementById('c-dial');
-    this.cMic = document.getElementById('c-mic');
-    this.cMicSig = document.getElementById('c-micsig');
-    this.cMNeedle = document.getElementById('c-mneedle');
-    this.cRec = document.getElementById('c-rec');
-    this.cLed = document.getElementById('c-led');
-    this.cBRec = document.getElementById('c-brec');
-    this.cBPlay = document.getElementById('c-bplay');
+    this.device = null;   // the low-poly handheld tuner (set by main)
 
     this._queue = [];
     this._typing = false;
     this._cursor = this.crt.querySelector('.cursor');
+  }
+
+  attachDevice(device) { this.device = device; }
+
+  // wipe the transcript — used when a task completes so the log stays clean
+  clearLog() {
+    while (this.crt.children.length > 1) this.crt.removeChild(this.crt.firstChild);
   }
 
   // ---------- CRT transcript ----------
@@ -58,8 +51,8 @@ export class HUD {
     this._drain();
   }
 
-  // ---------- console ----------
-  showConsole(on) { this.consoleEl.classList.toggle('open', on); }
+  // ---------- the handheld unit ----------
+  showConsole(on) { this.device?.show(on); }
 
   setObjective(t) { this.objective.textContent = t.toUpperCase(); }
   setHint(t) { this.hint.textContent = t || ''; }
@@ -69,32 +62,17 @@ export class HUD {
     else this.promptEl.classList.remove('show');
   }
 
-  setFreq(f) {
-    this.cFreq.textContent = f.toFixed(1);
-    const t = (f - TUNER.MIN) / (TUNER.MAX - TUNER.MIN);
-    this.cNeedle.style.left = `${t * 100}%`;
-    this.cDial.style.transform = `rotate(${t * 300 - 150}deg)`;
-  }
+  setFreq(f) { this.device?.setFreq(f); }
 
-  setSignal(c) { this.cSig.style.width = `${Math.round(c * 100)}%`; }
+  setSignal(c) { this.device?.setSignal(c); }
 
-  setMic(deg, s) {
-    this.cMic.textContent = `${String(deg).padStart(3, '0')}°`;
-    this.cMicSig.style.width = `${Math.round(s * 100)}%`;
-    this.cMNeedle.style.transform = `rotate(${deg}deg)`;
-    this.cMNeedle.style.transformOrigin = '50% 0';
-  }
+  setMic(deg, s) { this.device?.setMic(deg, s); }
 
-  setRec(state, sub) {
-    this.cRec.textContent = `${state} ${sub}`;
-    this.cLed.classList.toggle('on', state === 'REC');
-    this.cBRec.classList.toggle('pressed', state === 'REC');
-    this.cBPlay.classList.toggle('pressed', state === 'PLAY');
-  }
+  setRec(state, sub = '') { this.device?.setRec(state, sub); }
 
   flashRec(msg) {
-    this.cRec.textContent = msg;
-    setTimeout(() => { this.cRec.textContent = 'IDLE'; }, 900);
+    this.device?.setRec(msg, '');
+    setTimeout(() => this.device?.setRec('IDLE', ''), 900);
   }
 
   addTape(tape) {

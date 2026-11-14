@@ -31,10 +31,11 @@ export function buildLighting(scene) {
   red.position.set(-1.5, 2.4, -2.5);
   scene.add(red);
 
-  const state = { stress: 0, off: false, t: 0, flickerT: 0 };
+  const state = { stress: 0, off: false, t: 0, flickerT: 0, dark: 0 };
 
   return {
     setStress(v) { state.stress = v; },
+    setDarkness(v) { state.dark = Math.min(0.9, Math.max(0, v)); },
     kill() { state.off = true; },
     revive(dim = 0.25) {
       state.off = false;
@@ -47,8 +48,10 @@ export function buildLighting(scene) {
       if (state.off) {
         fluor1.intensity = 0; fluor2.intensity = 0;
         lamp.intensity = 0;
+        amb.intensity = 0.15;
         return;
       }
+      const dim = 1 - state.dark * 0.78;   // the room dies slowly over the shift
       // baseline hum-flicker
       let f = 1 + Math.sin(state.t * 57) * 0.012 + Math.sin(state.t * 23) * 0.01;
       // stress dropouts
@@ -59,9 +62,11 @@ export function buildLighting(scene) {
           if (Math.random() < state.stress * 0.85) f *= 0.05 + Math.random() * 0.3;
         }
       }
-      fluor1.intensity = 40 * f;
-      fluor2.intensity = 30 * (f * 0.9 + 0.1);
-      lamp.intensity = 14 * (0.92 + Math.sin(state.t * 31) * 0.05);
+      fluor1.intensity = 40 * f * dim;
+      fluor2.intensity = 30 * (f * 0.9 + 0.1) * dim;
+      lamp.intensity = 14 * (0.92 + Math.sin(state.t * 31) * 0.05) * dim;
+      amb.intensity = 1.1 * dim;
+      crtGlow.intensity = 3.5 * dim;
     },
   };
 }

@@ -105,92 +105,6 @@
     #prompt.show { opacity: 1; }
     #prompt b { color: var(--crt-green); font-weight: 400; }
 
-    /* ---------- the console — pops up like the unit rising to your face ---------- */
-    #console {
-      position: absolute; left: 50%; bottom: -6px;
-      width: 680px; padding: 14px 18px 18px;
-      transform: translate(-50%, 112%) scale(.96);
-      transition: transform .38s cubic-bezier(.18,.9,.24,1.08);
-      background:
-        repeating-linear-gradient(0deg, rgba(0,0,0,.06) 0 1px, transparent 1px 3px),
-        linear-gradient(180deg, #7a7261, #5d5647 60%, #4a4437);
-      border: 2px solid #2c2820; border-radius: 10px 10px 0 0;
-      box-shadow: 0 -6px 40px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.14);
-      display: flex; gap: 16px; align-items: stretch; justify-content: space-between;
-      color: #1d1a14; user-select: none;
-    }
-    #console.open { transform: translate(-50%, 0) scale(1); }
-    .c-screw { position: absolute; width: 9px; height: 9px; border-radius: 50%;
-      background: radial-gradient(circle at 35% 30%, #9a927e, #4a443a);
-      box-shadow: inset 0 -1px 2px rgba(0,0,0,.6); }
-    .c-screw::after { content:''; position:absolute; left:1px; right:1px; top:4px;
-      height:1.5px; background:#2c2820; transform:rotate(38deg); }
-    .c-screw.tl{left:7px;top:7px} .c-screw.tr{right:7px;top:7px}
-    .c-screw.bl{left:7px;bottom:7px} .c-screw.br{right:7px;bottom:7px}
-    .c-brand { position:absolute; top:5px; left:50%; transform:translateX(-50%);
-      font-size:9px; letter-spacing:4px; color:#3a352a; }
-    .c-sec { border:1px solid rgba(0,0,0,.35); border-radius:5px;
-      background:linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.28));
-      box-shadow: inset 0 1px 3px rgba(0,0,0,.5);
-      padding: 8px 10px; display:flex; flex-direction:column; align-items:center; gap:5px; }
-    .c-lbl { font-size:9px; letter-spacing:3px; color:#8a8168; }
-    .c-lbl kbd { font-family:inherit; color:#b0a888; }
-
-    /* frequency readout — red LED */
-    .c-freq { font-size:24px; letter-spacing:3px; color:#ff6a4a;
-      text-shadow:0 0 8px rgba(255,80,50,.8), 0 0 2px rgba(255,80,50,1);
-      background:#180604; padding:1px 8px; border-radius:3px; min-width:118px; text-align:center; }
-    .c-freq.sm { font-size:14px; min-width:70px; padding:1px 6px; letter-spacing:2px; }
-
-    /* band scale + needle + target tick */
-    .c-band { position:relative; width:190px; height:26px; background:#241f14;
-      border:1px solid rgba(0,0,0,.6); border-radius:2px; overflow:hidden; }
-    .c-band::before { content:''; position:absolute; inset:0;
-      background:repeating-linear-gradient(90deg, transparent 0 12px, rgba(216,176,106,.35) 12px 13px); }
-    .c-tick.target { position:absolute; left:64%; top:0; bottom:0; width:3px;
-      background:#cc3a2a; box-shadow:0 0 6px rgba(204,58,42,.9); }
-    .c-needle { position:absolute; left:0; top:0; bottom:0; width:2px;
-      background:#e8e0c0; box-shadow:0 0 4px rgba(255,255,255,.8); }
-
-    /* LED signal meter */
-    .c-meter { width:190px; height:10px; background:#120d08; border:1px solid rgba(0,0,0,.6);
-      border-radius:2px; overflow:hidden; position:relative; }
-    .c-meter::after { content:''; position:absolute; inset:0;
-      background:repeating-linear-gradient(90deg, transparent 0 8px, rgba(0,0,0,.55) 8px 10px); }
-    .c-meter i { display:block; height:100%; width:0%;
-      background:linear-gradient(90deg,#3d6b32,#9fd48a 55%,#e0d060 85%,#e06040); transition:width .08s; }
-
-    /* the big dial */
-    .c-dialwrap { display:flex; flex-direction:column; align-items:center; gap:6px; }
-    .c-dial { position:relative; width:104px; height:104px; border-radius:50%;
-      background:radial-gradient(circle at 38% 32%, #4a4d4a, #23262a 65%, #14161a);
-      border:3px solid #1a1c1e;
-      box-shadow:0 3px 8px rgba(0,0,0,.7), inset 0 2px 4px rgba(255,255,255,.12); }
-    .c-dial::before { content:''; position:absolute; inset:6px; border-radius:50%;
-      background:repeating-conic-gradient(rgba(0,0,0,.35) 0 6deg, transparent 6deg 24deg); }
-    .c-mark { position:absolute; left:50%; top:6px; width:5px; height:26px; margin-left:-2.5px;
-      background:#cc3a2a; border-radius:2px; box-shadow:0 0 6px rgba(204,58,42,.8); }
-    .c-dial.sm { width:58px; height:58px; }
-    .c-dial.sm .c-mark { height:16px; width:4px; top:4px; }
-
-    /* mic azimuth mini-dial */
-    .c-mneedle { position:absolute; left:50%; top:50%; width:3px; height:24px; margin-left:-1.5px;
-      background:#9fd48a; transform-origin:50% 0; box-shadow:0 0 5px rgba(159,212,138,.8); }
-
-    /* deck buttons */
-    .c-btns { display:flex; gap:8px; }
-    .c-btn { padding:7px 13px; font-size:11px; letter-spacing:1px; font-family:inherit;
-      background:linear-gradient(180deg,#6a6458,#4a443a); color:#1d1a14;
-      border:1px solid #241f18; border-radius:4px;
-      box-shadow:0 2px 0 #241f18, inset 0 1px 0 rgba(255,255,255,.15); cursor:default; }
-    .c-btn kbd { font-family:inherit; color:#8a8168; margin-left:5px; font-size:9px; }
-    .c-btn.red { background:linear-gradient(180deg,#8a3a2e,#6a2418); color:#f0d8d0; }
-    .c-btn.grn { background:linear-gradient(180deg,#4a6b42,#2f4a28); color:#d8e8c8; }
-    .c-btn.pressed { transform:translateY(2px); box-shadow:0 0 0 #241f18, inset 0 2px 4px rgba(0,0,0,.5); }
-    .c-led { width:10px; height:10px; border-radius:50%; background:#2a0d08;
-      border:1px solid #180a06; box-shadow:inset 0 1px 2px rgba(0,0,0,.6); }
-    .c-led.on { background:#ff3520; box-shadow:0 0 8px rgba(255,53,32,.9); animation:blink .6s steps(1) infinite; }
-
     /* hint line under objective */
     #hint { color:#b09050; font-size:11px; letter-spacing:1px; margin-top:6px; font-style:italic; }
 
@@ -225,43 +139,6 @@
     <div id="crt"><span class="sys">DEAD AIR TERMINAL v2.3 — STANDBY</span><br><span class="cursor"></span></div>
     <div id="objective"><div class="head">DIRECTIVE</div><div id="objective-text">AWAITING INSTRUCTIONS</div><div id="hint"></div></div>
     <div id="prompt"></div>
-    <div id="console">
-      <div class="c-screw tl"></div><div class="c-screw tr"></div>
-      <div class="c-screw bl"></div><div class="c-screw br"></div>
-      <div class="c-brand">MERIDIAN CONSOLE MK-II</div>
-      <div class="c-sec">
-        <div class="c-lbl">FREQUENCY &nbsp;MHz</div>
-        <div class="c-freq" id="c-freq">--.-</div>
-        <div class="c-band">
-          <div class="c-tick target"></div>
-          <div class="c-needle" id="c-needle"></div>
-        </div>
-        <div class="c-meter"><i id="c-sig"></i></div>
-        <div class="c-lbl">SIGNAL</div>
-      </div>
-      <div class="c-sec c-dialwrap">
-        <div class="c-dial" id="c-dial"><div class="c-mark"></div></div>
-        <div class="c-lbl">TUNE &nbsp;<kbd>&lt;A / D&gt;</kbd> or drag</div>
-      </div>
-      <div class="c-sec">
-        <div class="c-lbl">MIC &nbsp;<kbd>&lt;Q / E&gt;</kbd></div>
-        <div class="c-dial sm" style="position:relative"><div class="c-mneedle" id="c-mneedle"></div></div>
-        <div class="c-freq sm" id="c-mic">000&deg;</div>
-        <div class="c-meter" style="width:90px"><i id="c-micsig"></i></div>
-      </div>
-      <div class="c-sec">
-        <div class="c-lbl">DECK</div>
-        <div class="c-btns">
-          <div class="c-btn red" id="c-brec">&#9679; REC<kbd>R</kbd></div>
-          <div class="c-btn grn" id="c-bplay">&#9658; PLAY<kbd>P</kbd></div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <div class="c-led" id="c-led"></div>
-          <div class="c-freq sm" id="c-rec">IDLE</div>
-        </div>
-        <div class="c-lbl"><kbd>SPC</kbd> stop</div>
-      </div>
-    </div>
     <div id="tape-slot"><b>TAPE LOG</b><div id="tape-list"></div></div>
   </div>
   <div id="scare"></div>
