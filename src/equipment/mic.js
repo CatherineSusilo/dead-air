@@ -6,7 +6,7 @@ import { bus } from '../config.js';
 // audible in the room always).
 
 const PLAYER = { x: 0.1, y: 1.3, z: 1.55 };
-const AIM_WIDTH = 38; // degrees at which signal drops to zero
+const AIM_WIDTH = 58; // degrees at which signal drops to zero — wide, forgiving lobe
 
 export class DirectionalMic {
   constructor(refs, hud) {
@@ -27,11 +27,11 @@ export class DirectionalMic {
     let d = Math.abs(this.azimuth - bearing) % 360;
     if (d > 180) d = 360 - d;
     const f = Math.max(0, 1 - d / AIM_WIDTH);
-    return f * f;
+    return Math.min(1, f * 1.35); // hot center — the meter peaks well before dead-on
   }
 
   rotate(dir, dt) {
-    this.azimuth += dir * 60 * dt;
+    this.azimuth += dir * 85 * dt;
     if (this.azimuth > 180) this.azimuth -= 360;
     if (this.azimuth < -180) this.azimuth += 360;
     // barrel points +z locally; azimuth 0 must face the door wall (-z)

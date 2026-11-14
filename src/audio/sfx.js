@@ -1,4 +1,6 @@
 import { audio } from './engine.js';
+import { SOURCES } from '../config.js';
+import { playFile } from './files.js';
 
 // All environmental / scare SFX, synthesized.
 
@@ -301,16 +303,72 @@ export function noiseScream() {
   const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 850; f.Q.value = 0.4;
   const e = c.createGain();
   e.gain.setValueAtTime(0.0001, t);
-  e.gain.exponentialRampToValueAtTime(1.5, t + 0.03);
-  e.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+  e.gain.exponentialRampToValueAtTime(2.2, t + 0.02);
+  e.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
   const o = c.createOscillator(); o.type = 'sawtooth';
   o.frequency.setValueAtTime(230, t);
-  o.frequency.exponentialRampToValueAtTime(36, t + 2.2);
-  const og = c.createGain(); og.gain.value = 0.45;
+  o.frequency.exponentialRampToValueAtTime(36, t + 2.4);
+  const og = c.createGain(); og.gain.value = 0.55;
   nz.connect(f).connect(e).connect(audio.master);
   o.connect(og).connect(e);
-  nz.start(t); nz.stop(t + 2.5);
-  o.start(t); o.stop(t + 2.5);
+  nz.start(t); nz.stop(t + 2.7);
+  o.start(t); o.stop(t + 2.7);
+  // the real lungs — ElevenLabs shriek + sub impact underneath
+  playFile('shriek', { gain: 1.4 });
+  playFile('boom', { gain: 1.5 });
+}
+
+// THE door burst — it doesn't open the door, it takes it off.
+// Layered: generated door smash + shriek + boom over synth slam/sting.
+export function doorBurst() {
+  const b = SOURCES.door.bearing;
+  playFile('door_burst', { gain: 1.6, bearing: b, distance: 0.7 });
+  playFile('shriek', { gain: 1.3 });
+  playFile('boom', { gain: 1.6 });
+  slam(b);
+  sting(1.5);
+  noiseScreamSynthOnly();
+}
+
+// synth-only inner body of noiseScream (avoid doubling the file layers)
+function noiseScreamSynthOnly() {
+  const c = ctx(), t = c.currentTime;
+  const nz = audio.noiseSource(false);
+  const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 700; f.Q.value = 0.5;
+  const e = c.createGain();
+  e.gain.setValueAtTime(0.0001, t);
+  e.gain.exponentialRampToValueAtTime(1.8, t + 0.02);
+  e.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+  nz.connect(f).connect(e).connect(audio.master);
+  nz.start(t); nz.stop(t + 1.9);
+}
+
+// heavy clanging inside the walls — pipes being struck, ductwork buckling
+export function wallBang(bearing = 0, distance = 2, gain = 0.5) {
+  const c = ctx(), t = c.currentTime;
+  // low body thud
+  const o = c.createOscillator(); o.frequency.setValueAtTime(60 + Math.random() * 25, t);
+  const og = c.createGain();
+  og.gain.setValueAtTime(0.0001, t);
+  og.gain.exponentialRampToValueAtTime(gain * 1.2, t + 0.012);
+  og.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  // ringing metal strike
+  const nz = audio.noiseSource(false);
+  const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 7;
+  f.frequency.value = 500 + Math.random() * 1400;
+  const e = c.createGain();
+  e.gain.setValueAtTime(0.0001, t);
+  e.gain.exponentialRampToValueAtTime(gain, t + 0.006);
+  e.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+  const { input, output } = audio.panner(bearing, distance);
+  o.connect(og).connect(input);
+  nz.connect(f).connect(e).connect(input);
+  output.connect(audio.roomBus);
+  output.connect(audio.reverb);
+  o.start(t); o.stop(t + 0.55);
+  nz.start(t); nz.stop(t + 0.95);
+  // sometimes it's the real recording
+  if (Math.random() < 0.5) playFile('wall_clank', { gain: gain * 1.1, bearing, distance });
 }
 
 // sudden dissonant hit — makes scares "jump out"

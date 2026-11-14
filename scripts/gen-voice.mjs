@@ -83,4 +83,29 @@ for (const L of LINES) {
     }
   }
 }
+
+// ---- sound effects (text-to-sfx) — the thing's physical sounds ----
+const SFX_OUT = new URL('../public/sfx/', import.meta.url).pathname;
+mkdirSync(SFX_OUT, { recursive: true });
+const SFX = [
+  { id: 'shriek',     t: 'monstrous inhuman creature shriek, guttural distorted scream, terrifying horror, sudden loud', d: 2.2 },
+  { id: 'door_burst', t: 'heavy industrial metal door violently smashed open, loud impact bang, concrete room reverb',   d: 1.6 },
+  { id: 'wall_clank', t: 'heavy metallic clanging and banging inside concrete walls, pipes struck hard, industrial',     d: 2.0 },
+  { id: 'growl',      t: 'low guttural creature growl with wet breathing, menacing, close to microphone',                d: 3.0 },
+  { id: 'boom',       t: 'deep cinematic sub-bass impact boom, horror stinger, floor-shaking thud',                      d: 1.5 },
+];
+for (const S of SFX) {
+  const file = join(SFX_OUT, `${S.id}.mp3`);
+  if (existsSync(file)) { console.log(`skip  sfx/${S.id}`); continue; }
+  try {
+    const stream = await client.textToSoundEffects.convert({
+      text: S.t, durationSeconds: S.d, promptInfluence: 0.6, outputFormat: 'mp3_44100_128',
+    });
+    await new Promise((res, rej) =>
+      Readable.fromWeb(stream).pipe(createWriteStream(file)).on('finish', res).on('error', rej));
+    console.log(`wrote sfx/${S.id}.mp3`);
+  } catch (e) {
+    console.error(`FAIL  sfx/${S.id}: ${e.message}`);
+  }
+}
 console.log('done.');
