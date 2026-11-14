@@ -70,6 +70,8 @@ const hitList = [
   interactables.radio, interactables.door, interactables.trash,
 ];
 let hoverType = null;
+let lastUse = -10;      // last time the player touched the equipment
+const CONSOLE_TYPES = new Set(['tuner', 'radio', 'recorder', 'mic']);
 
 function typeOf(obj) {
   let o = obj;
@@ -81,6 +83,7 @@ addEventListener('keydown', (e) => {
   if (!running || over) return;
   const k = e.key.toLowerCase();
   keys.add(k);
+  if ('adqerpt f'.includes(k)) lastUse = clock.elapsedTime;
   if (k === 'r') recorder.toggleRecord();
   if (k === 'p') recorder.playLast();
   if (k === ' ') { e.preventDefault(); recorder.stopPlayback(); recorder.stopRecord(); }
@@ -198,6 +201,12 @@ function tick() {
       if (hoverType === 'door' && director?.doorArmed) promptKey = 'doorArmed';
       if (hoverType === 'trash' && director?._flags.gotTape) promptKey = null;
       hud.prompt(promptKey ? PROMPTS[promptKey] : null);
+
+      // the console pops up to your face while you're working it
+      const wantConsole =
+        CONSOLE_TYPES.has(hoverType) || !!dragTarget ||
+        (t - lastUse < 2.5) || director?.beat === 'tune';
+      hud.showConsole(wantConsole);
 
       // pulse the physical part you can grab
       for (const [type, mats] of Object.entries(hotspots)) {

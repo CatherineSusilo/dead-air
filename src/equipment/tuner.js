@@ -21,7 +21,6 @@ export class Tuner {
       radio.start();
       bus.emit('attention', 'TUNE_OPEN');
     }
-    this.hud.setBox('tuner', on);
   }
 
   setFreq(f) {

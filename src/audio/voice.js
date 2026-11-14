@@ -120,6 +120,65 @@ export function speak(text, { timbre = 'A', dest = null, gain = 0.8, when = 0, r
   return total;
 }
 
+// ---------- real voice lines (ElevenLabs, pre-generated into /voice) ----------
+
+const _bufCache = new Map();
+
+async function loadLine(id) {
+  if (_bufCache.has(id)) return _bufCache.get(id);
+  const p = (async () => {
+    try {
+      const res = await fetch(`voice/${id}.mp3`);
+      if (!res.ok) return null;
+      const ab = await res.arrayBuffer();
+      return await audio.ctx.decodeAudioData(ab);
+    } catch {
+      return null;
+    }
+  })();
+  _bufCache.set(id, p);
+  return p;
+}
+
+// Play a generated voice file through the same radio crunch as the synth.
+// timbre 'X' = slowed, ring-modded, extra filth. Returns seconds (0 on miss).
+export async function playLine(id, { dest = null, gain = 0.9, timbre = 'A', rate = 1, when = 0 } = {}) {
+  const ctx = audio.ctx;
+  const buf = await loadLine(id);
+  if (!buf) return 0;
+  const out = dest || audio.radioBus;
+
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const r = rate * (timbre === 'X' ? 0.82 : 1);
+  src.playbackRate.value = r;
+
+  const g = ctx.createGain(); g.gain.value = gain;
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = timbre === 'X' ? 800 : 1500;
+  bp.Q.value = 0.55;
+  const ws = ctx.createWaveShaper();
+  ws.curve = distortCurve(timbre === 'X' ? 26 : 5);
+
+  src.connect(g).connect(bp).connect(ws);
+
+  if (timbre === 'X') {
+    // ring-mod makes the mimic sound slightly wrong
+    const rg = ctx.createGain(); rg.gain.value = 0.55;
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 23;
+    const lg = ctx.createGain(); lg.gain.value = 0.45;
+    lfo.connect(lg).connect(rg.gain);
+    ws.connect(rg).connect(out);
+    lfo.start(ctx.currentTime + when); lfo.stop(ctx.currentTime + when + buf.duration / r + 0.2);
+  } else {
+    ws.connect(out);
+  }
+
+  src.start(ctx.currentTime + when);
+  return buf.duration / r;
+}
+
 // Low, close-mic whisper — no pitch, shaped noise. Returns duration.
 export function whisper(text, { gain = 0.35, pan = 0, when = 0, rate = 1 } = {}) {
   const ctx = audio.ctx;

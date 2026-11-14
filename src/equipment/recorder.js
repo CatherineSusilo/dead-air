@@ -2,7 +2,7 @@ import { audio } from '../audio/engine.js';
 import { bus } from '../config.js';
 import { radio } from '../audio/radio.js';
 import { tapeHiss, phoneBeep } from '../audio/sfx.js';
-import { speak, whisper } from '../audio/voice.js';
+import { speak, whisper, playLine } from '../audio/voice.js';
 
 // Cassette recorder. Recording captures whatever the tuner is locked onto —
 // the "content" is scripted by the director (each live transmission registers
@@ -58,6 +58,7 @@ export class Recorder {
         label: `TAPE 0${n} — ${Math.round(this.recTime)}s`,
         line: line?.text || null,
         timbre: line?.timbre || 'A',
+        ttsId: line?.ttsId || null,
         hidden: !!line,
         duration: this.recTime,
       };
@@ -82,25 +83,26 @@ export class Recorder {
     bus.emit('attention', 'PLAYBACK');
     bus.emit('playback', tape);
 
-    let base;
-    if (tape.phone) {
-      // found tape — answering-machine style: beep, then the message
-      phoneBeep();
-      base = 0.8 + speak(tape.line || '...', { timbre: tape.timbre, gain: 0.6, when: 0.8, rate: 0.95 });
-    } else {
-      base = speak(tape.line || '...', {
-        timbre: tape.timbre, gain: tape.line ? 0.5 : 0.15, rate: 0.92,
-      });
-    }
-    const total = Math.max(base, tape.duration * 0.6);
-    // hidden layer — the part you couldn't hear live
-    if (tape.hidden) {
-      setTimeout(() => {
-        if (!this.playing) return;
-        whisper(tape.hiddenLine || tape.line || 'it hears the tape too', { gain: 0.22, pan: -0.2, rate: 0.55 });
-      }, Math.max(400, base * 450));
-    }
-    this._playTimer = setTimeout(() => this.stopPlayback(), total * 1000 + 600);
+    (async () => {
+      let base = 0;
+      if (tape.phone) phoneBeep(); // answering-machine style lead-in
+      const lead = tape.phone ? 0.8 : 0;
+      const dur = tape.ttsId
+        ? await playLine(tape.ttsId, { timbre: tape.timbre, gain: 0.7, when: lead })
+        : 0;
+      base = lead + (dur || speak(tape.line || '...', {
+        timbre: tape.timbre, gain: tape.line ? 0.5 : 0.15, rate: 0.92, when: lead,
+      }));
+      const total = Math.max(base, tape.duration * 0.6);
+      // hidden layer — the part you couldn't hear live
+      if (tape.hidden) {
+        setTimeout(() => {
+          if (!this.playing) return;
+          whisper(tape.hiddenLine || tape.line || 'it hears the tape too', { gain: 0.22, pan: -0.2, rate: 0.55 });
+        }, Math.max(400, base * 450));
+      }
+      this._playTimer = setTimeout(() => this.stopPlayback(), total * 1000 + 600);
+    })();
   }
 
   stopPlayback() {

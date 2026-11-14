@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "voice": "node --env-file=.env.local scripts/gen-voice.mjs"
   },
   "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.78.0",
     "three": "^0.169.0"
   },
   "devDependencies": {

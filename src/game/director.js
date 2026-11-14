@@ -1,8 +1,8 @@
 import { ATTENTION, SOURCES, bus } from '../config.js';
 import { audio } from '../audio/engine.js';
-import { speak, whisper } from '../audio/voice.js';
+import { speak, whisper, playLine } from '../audio/voice.js';
 import * as sfx from '../audio/sfx.js';
-import { SYS, A, B, X, TAPE } from './script.js';
+import { SYS, X, TAPE, LINES } from './script.js';
 
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 
@@ -12,6 +12,13 @@ const HIDDEN_LINES = [
   'stop recording. it hears the tape too',
   'that voice is not mine anymore',
 ];
+
+const HINTS = {
+  tune:   'hold [D] — bring the needle onto the red tick at 87.4',
+  locate: 'rotate the mic [Q]/[E] toward the sound — the meter peaks when aimed',
+  record: '[R] record 2s+ of traffic, then [P] to play it back',
+  free:   'monitor the band. every sound you make, it hears',
+};
 
 export class Director {
   constructor({ hud, tuner, mic, recorder, refs, lighting, postfx, ambience }) {
@@ -29,7 +36,7 @@ export class Director {
     this.beat = 'boot';
     this.over = false;
     this.shake = 0;
-    this.doorArmed = false;   // once the mimic speaks, the door can be opened
+    this.doorArmed = false;   // once it's outside, the door can be opened
 
     this._timers = [];
     this._loops = [];
@@ -78,32 +85,34 @@ export class Director {
     if (lvl === 2) {
       this._flags.l2 = true;
       this.hud.print('sys', '> ADVISORY: MOVEMENT DETECTED — CORRIDOR B');
+      this.hud.print('sys', '> UNREGISTERED CARRIER BLEEDING ONTO BAND — IGNORE');
       this._loopAt(12, () => {
         sfx.footstepWalk(-70, 60, 2.2, 8, 0.7);
       });
       this._spawnBreather('door', SOURCES.door.world);
-      if (this._flags.saidWarn) return;
-      this._flags.saidWarn = true;
-      this._say('src-b', B.warnRec, 'B').then(() =>
-        this._say('src-b', B.learned, 'B'));
     }
     if (lvl === 3) {
       this._flags.l3 = true;
       sfx.knock(SOURCES.door.bearing, 1.2, 0.5, 3);
       this._figureAtWindow(5);
       this.hud.print('sys', '> WARNING: PERIMETER SENSOR TRIP — DOOR 7');
-      this._say('src-b', B.outside, 'B');
+      // her only live broadcast — it costs attention to answer with your ears
+      this._say('b_outside');
+      this.doorArmed = true;   // it's knocking. the wheel will turn if you let it
       this._loopAt(16, () => sfx.knock(SOURCES.door.bearing, 1.2, 0, 2 + (Math.random() * 2 | 0)));
     }
   }
 
   // ---------- helpers ----------
-  async _say(cls, text, timbre = 'A') {
+  async _say(id) {
     if (this.over) return;
-    const signal = timbre === 'A' ? 'control' : timbre === 'B' ? 'stranger' : 'unknown';
-    this.recorder.captureContext({ text, timbre, signal });
-    const p = this.hud.print(cls, `> ${text}`);
-    speak(text, { timbre, gain: 0.85 });
+    const L = LINES[id];
+    if (!L) return;
+    const signal = L.timbre === 'A' ? 'control' : L.timbre === 'B' ? 'stranger' : 'unknown';
+    this.recorder.captureContext({ text: L.text, timbre: L.timbre, ttsId: id, signal });
+    const p = this.hud.print(L.cls, `> ${L.text}`);
+    const dur = await playLine(id, { timbre: L.timbre, gain: 0.95 });
+    if (!dur) speak(L.text, { timbre: L.timbre, gain: 0.85 }); // synth fallback
     return p;
   }
 
@@ -148,6 +157,7 @@ export class Director {
       label: 'FOUND TAPE — SUB3',
       line: TAPE.line,
       timbre: 'B',
+      ttsId: 'b_tape',
       hidden: true,
       hiddenLine: TAPE.hiddenLine,
       phone: true,
@@ -158,6 +168,7 @@ export class Director {
     this.hud.addTape(tape);
     this.add(ATTENTION.PICKUP, 'PICKUP');
     this.hud.print('sys', '> CASSETTE RECOVERED. HANDWRITTEN LABEL: "DO NOT PLAY"');
+    this.hud.setHint('press [P] on the deck to play what you found');
   }
 
   // ---------- main flow ----------
@@ -168,11 +179,12 @@ export class Director {
     }
     this._spawnTrash();
     await sleep(1);
-    await this._say('src-a', A.greeting, 'A');
+    await this._say('a_greeting');
     await sleep(1.5);
     this.beat = 'tune';
-    this.hud.setObjective('TUNE RECEIVER TO 87.4 MHZ  [A / D]');
-    await this._say('src-a', A.tuneFirst, 'A');
+    this.hud.setObjective('TUNE RECEIVER TO 87.4 MHZ');
+    this.hud.setHint(HINTS.tune);
+    await this._say('a_tune');
   }
 
   // called by main when tuner lock state changes
@@ -180,13 +192,6 @@ export class Director {
     if (this.over || clarity < 0.55) return;
     this.add(ATTENTION.LOCK, 'LOCK');
 
-    if (this.beat === 'tune' && (signalId === 'control' || signalId === 'stranger')) {
-      this._flags.lockT = (this._flags.lockT || 0) + 1;
-      if (this._flags.lockT >= 1) {
-        this.beat = 'firstcontact';
-        this._firstContact();
-      }
-    }
     if (signalId === 'whisper' && !this._flags.whisperFound) {
       this._flags.whisperFound = true;
       this.hud.print('src-x', '> (a voice, barely under the static)');
@@ -197,16 +202,16 @@ export class Director {
 
   async _firstContact() {
     await sleep(1);
-    await this._say('src-a', A.lockOk, 'A');
-    await sleep(2);
-    await this._say('src-b', B.first, 'B');
-    await this._say('src-b', B.warn1, 'B');
-    await sleep(1);
+    await this._say('a_lock');
+    await sleep(1.5);
+    // something bleeds across the band — a voice, almost. not subtitled.
     this.hud.print('sys', '> CARRIER ANOMALY ON 87.4 — SOURCE UNRESOLVED');
-    await sleep(2);
+    speak('he—llo', { timbre: 'X', gain: 0.3, rate: 0.7 });
+    await sleep(2.5);
     this.beat = 'locate';
-    this.hud.setObjective('LOCATE THE SOUND  —  ROTATE MIC [Q / E]');
-    await this._say('src-a', A.micTask, 'A');
+    this.hud.setObjective('LOCATE THE SOUND WITH THE MIC');
+    this.hud.setHint(HINTS.locate);
+    await this._say('a_mictask');
     // the "anomalous resonance" — a clank loop in the vent
     const em = this.mic.spawnEmitter('vent', SOURCES.vent.world, { roomLevel: 0.14, micLevel: 1.2 });
     this._ventLoop = { em, t: 0 };
@@ -215,7 +220,7 @@ export class Director {
 
   async _onPlayback(tape) {
     if (this.over) return;
-    tape.hiddenLine = tape.line ? tape.line : HIDDEN_LINES[(Math.random() * HIDDEN_LINES.length) | 0];
+    tape.hiddenLine = tape.hiddenLine || (tape.line ? tape.line : HIDDEN_LINES[(Math.random() * HIDDEN_LINES.length) | 0]);
     tape.hidden = true;
     this._flags.playedOnce = true;
     this._after(1.5, () => this.hud.markTapeHidden(tape));
@@ -223,7 +228,7 @@ export class Director {
       // control notices the contraband tape
       this._after(6, () => {
         this.hud.print('sys', '> UNREGISTERED MEDIA DETECTED ON DECK — CONTENTS CLASSIFIED AS HOAX');
-        this._after(3, () => this._say('src-a', 'DISPOSE OF RECOVERED MEDIA. TRUST ONLY FACILITY TRAFFIC.', 'A'));
+        this._after(3, () => this._say('a_hoax'));
       });
     }
     if (this.beat === 'record' && !this._flags.recDone) {
@@ -233,12 +238,12 @@ export class Director {
   }
 
   async _recDone() {
-    await this._say('src-a', A.recDone, 'A');
+    await this._say('a_recdone');
     await sleep(1);
-    await this._say('src-b', B.warnRec, 'B');
     this.beat = 'free';
     this.hud.setObjective('MONITOR FREQUENCIES. KEEP NOISE DOWN.');
-    this._say('src-a', A.pestWarn, 'A');
+    this.hud.setHint(HINTS.free);
+    this._say('a_pest');
     // re-fire any escalation levels crossed during earlier beats
     if (this.level > 0) this._enterLevel(this.level);
   }
@@ -259,6 +264,7 @@ export class Director {
   async _finale() {
     this.beat = 'finale';
     this.hud.setObjective('STAY QUIET.');
+    this.hud.setHint('or open the door. it is asking.');
     // breathing right behind the chair
     const em = this.mic.spawnEmitter('behind', SOURCES.behind.world, { roomLevel: 0.35, micLevel: 1.4 });
     this._loopAt(1.7, () => sfx.emitBreathPulse(em.input, 0.55));
@@ -269,14 +275,17 @@ export class Director {
     this.ambience?.setLevel(0.25, 2);
     this.lighting.kill();
     this.hud.print('sys', '> LIGHTING BUS FAILURE');
-    for (let i = 0; i < 3; i++) sfx.emitThump(audio.roomBus, 0.5, 70 + i * 12) || await sleep(0.9);
+    for (let i = 0; i < 3; i++) {
+      sfx.emitThump(audio.roomBus, 0.5, 70 + i * 12);
+      await sleep(0.9);
+    }
     await sleep(2.5);
     this.lighting.redAlert(true);
     this.lighting.revive(0.08);
-    await this._say('src-x', A.mimic, 'X');
+    await this._say('a_mimic');
     await sleep(1.5);
-    await this._say('src-x', X.mimicB, 'X');
-    this.doorArmed = true;   // it's asking. the door will open if the player clicks it
+    await this._say('x_mimicb');
+    this.doorArmed = true;
     sfx.doorCreak(SOURCES.door.bearing);
     await sleep(2);
     this._figureAtWindow(4);
@@ -310,7 +319,8 @@ export class Director {
     this._glitchPulse(1);
     this.hud.scareFlash(1.6);
     this.shake = 1;
-    whisper(X.door, { gain: 0.6, rate: 0.4, when: 0.35 });
+    const w = await playLine('x_door', { timbre: 'X', gain: 0.8 });
+    if (!w) whisper(X.door, { gain: 0.6, rate: 0.4 });
     this.hud.print('src-x', '> SIGNAL OVERRUN — CARRIER UNRESOLVED');
     await sleep(2.3);
     bus.emit('gameover', 'door');
@@ -394,7 +404,7 @@ export class Director {
       this._flags.recNag = (this._flags.recNag || 0) + dt;
       if (this._flags.recNag > 90) {
         this._flags.recNag = 0;
-        this._say('src-a', A.recTask, 'A');
+        this._say('a_rectask');
       }
     }
 
@@ -402,22 +412,24 @@ export class Director {
   }
 
   async _afterLocate() {
-    await this._say('src-a', A.micDone, 'A');
-    await sleep(1.5);
-    await this._say('src-b', B.warnMic, 'B');
+    await this._say('a_micdone');
     await sleep(1);
     this.beat = 'record';
-    this.hud.setObjective('RECORD TRAFFIC [R]  THEN  PLAY BACK [P]');
-    await this._say('src-a', A.recTask, 'A');
+    this.hud.setObjective('RECORD TRAFFIC, THEN PLAY IT BACK');
+    this.hud.setHint(HINTS.record);
+    await this._say('a_rectask');
     // player may have jumped the gun and already played a tape
     if (this._flags.playedOnce && !this._flags.recDone) {
       this._flags.recDone = true;
       this._after(3, () => this._recDone());
       return;
     }
-    // air something worth taping — an odd scheduled broadcast
+    // air something odd worth taping — a murmur, no transcript
     this._after(6, () => {
-      if (this.beat === 'record') this._say('src-b', B.warnRec, 'B');
+      if (this.beat === 'record') {
+        this.recorder.captureContext({ text: 'do not let it count your sounds', timbre: 'X', signal: 'unknown' });
+        speak('do not let it count your sounds', { timbre: 'X', gain: 0.4, rate: 0.75 });
+      }
     });
   }
 }
