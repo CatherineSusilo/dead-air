@@ -72,6 +72,9 @@ export class Director {
     this._peek = null;       // the charge scare — it bursts out then vanishes
     this._tickT = 0;         // claw-tap countdown timer
     this._danger = 0;        // current task danger, drives scare eligibility
+    this._kill = null;       // the fill-screen terminal lunge
+    this._loudTime = 0;      // sustained loud-radio seconds — it hears the carrier
+    this._doorMove = null;   // 'open' = smashed aside, 'close' = slammed back
 
     bus.on('attention', (reason) => this.add(ATTENTION[reason] ?? 0, reason));
     bus.on('playback', (tape) => this._onPlayback(tape));
@@ -144,8 +147,9 @@ export class Director {
       this._say('b_outside');
       this.doorArmed = true;   // it's knocking. the wheel will turn if you let it
       this._loopAt(16, () => sfx.knock(SOURCES.door.bearing, 1.2, 0, 2 + (Math.random() * 2 | 0)));
-      // and a few seconds later — it tries the room once
-      this._after(9, () => { if (!this.over) this._peekScare(); });
+      // it tries the room once — a warning, but only once you're in free play.
+      // mid-task it doesn't warn, it just comes.
+      this._after(9, () => { if (!this.over && this.beat === 'free') this._peekScare(); });
     }
   }
 
@@ -156,12 +160,12 @@ export class Director {
     if (!L) return;
     const signal = L.timbre === 'A' ? 'control' : L.timbre === 'B' ? 'stranger' : 'unknown';
     this.recorder.captureContext({ text: L.text, timbre: L.timbre, ttsId: id, signal });
-    const p = this.hud.print(L.cls, `> ${L.text}`);
+    this.hud.print(L.cls, `> ${L.text}`);
     // control's voice rots as attention climbs — the carrier is degrading
     const corrupt = L.timbre === 'A' ? Math.min(0.9, this.attention / 110) : 0;
     const dur = await playLine(id, { timbre: L.timbre, gain: 0.95, corrupt });
-    if (!dur) speak(L.text, { timbre: L.timbre, gain: 0.85 }); // synth fallback
-    return p;
+    // synth fallback — also returns seconds-until-finished
+    return dur || speak(L.text, { timbre: L.timbre, gain: 0.85 });
   }
 
   _after(t, fn) { this._timers.push({ t, fn }); }
@@ -171,20 +175,58 @@ export class Director {
     this._glitch = Math.max(this._glitch, v);
   }
 
-  // it BURSTS through the door at you — red eyes, deafening, then gone.
-  // non-fatal: it's testing whether the door needs to stay shut.
+  // it BURSTS through the door at you — red eyes, deafening, lingers,
+  // then gone. a warning — it only plays this way in free play.
+  // outside free play, the monster doesn't warn you. it just takes you.
   _peekScare() {
-    if (this.over || this._peek || this._lunge) return;
+    if (this.over || this._peek || this._lunge || this._kill) return;
+    if (this.beat !== 'free') { this._monsterKill(); return; }
     const f = this.refs.figure;
     f.position.set(-1.5, 0, -2.55);
     f.rotation.y = 0;
     f.visible = true;
     this._peek = { t: 0 };
     this._doorMove = 'open';      // the panel gets smashed aside, then slammed back
+    this._scareLoud(1.7, 1.6);
     sfx.doorBurst();
     this.hud.scareFlash(1.4);
     this._glitchPulse(0.45);   // violent, but the red eyes still read through it
     this.shake = Math.max(this.shake, 1.3);
+  }
+
+  // slam the master bus to the wall for a scare — the compressor turns
+  // it into a solid wall of sound, then it backs off
+  _scareLoud(mult = 1.8, hold = 1.5) {
+    const g = audio.master.gain, t = audio.now();
+    g.cancelScheduledValues(t);
+    g.setTargetAtTime(mult, t, 0.02);
+    g.setTargetAtTime(0.9, t + hold, 0.4);
+  }
+
+  // THE kill scare — it fills the entire screen, then the screen is black.
+  async _monsterKill() {
+    if (this.over || this._kill) return;
+    this.over = true;
+    cutSpeech();
+    this.hud.setUrgent(false);
+    this.hud.setHint('');
+    const f = this.refs.figure;
+    f.position.set(-1.5, 0, -2.55);
+    f.rotation.y = 0;
+    f.visible = true;
+    this._doorMove = 'open';
+    this._kill = { t: 0 };
+    this._scareLoud(2.1, 3.2);        // as loud as the bus will go
+    sfx.doorBurst();
+    this.lighting.redAlert(true);
+    this.hud.scareFlash(1.8);
+    this._glitchPulse(0.8);
+    this.shake = 1.6;
+    await sleep(0.75);
+    this.hud.blackout(true, 0.5);     // it reaches you — everything goes black
+    playFile('shriek', { gain: 1.7 });
+    await sleep(1.8);                 // held in the dark with it
+    bus.emit('gameover', 'timeout');
   }
 
   _figureAtWindow(seconds) {
@@ -285,8 +327,11 @@ export class Director {
     sfx.sting(0.25);
     this.hud.setHint('');
     await this.hud.print('sys', `> TASK ${i + 1}/6 COMPLETE`);
-    if (task.done) await this._say(task.done);
-    await sleep(1.1);
+    // the voice keeps talking after the transcript prints — hold the
+    // log wipe until the line is actually done playing, plus a beat
+    let wait = 1.2;
+    if (task.done) wait = Math.max(wait, (await this._say(task.done)) + 1.4);
+    await sleep(wait);
     this.hud.clearLog();   // clean log after task completion
 
     const next = i + 1;
@@ -315,23 +360,26 @@ export class Director {
     this.hud.setUrgent(false);
     this._scratch?.setLevel(1);
     cutSpeech();
+    this._scareLoud(2.1, 3.2);
     sfx.sting(1.4);
     this.lighting.kill();
     this.lighting.redAlert(true);
-    // it comes through the door at you
+    // it comes through the door at you — and doesn't stop coming
     const f = this.refs.figure;
     f.position.set(-1.5, 0, -2.55);
     f.rotation.y = 0;
     f.visible = true;
     sfx.doorCreak(SOURCES.door.bearing);
-    this._lunge = { t: 0 };
+    this._kill = { t: 0 };
     this._doorMove = 'open';        // it takes the door off its track coming in
     await sleep(0.9);
     sfx.doorBurst();
     this._glitchPulse(1);
     this.hud.scareFlash(1.8);
-    this.shake = 1;
-    await sleep(1.6);
+    this.shake = 1.4;
+    await sleep(0.6);
+    this.hud.blackout(true, 0.5);
+    await sleep(1.4);
     bus.emit('gameover', 'timeout');
   }
 
@@ -360,9 +408,10 @@ export class Director {
         playFile('growl', { gain: 0.5 + this._danger * 0.5, bearing: Math.random() < 0.5 ? SOURCES.door.bearing : SOURCES.behind.bearing, distance: 1.2 });
       }
     });
-    // it tests the room occasionally — more often once it's close
+    // it tests the room occasionally — only once you're in free play.
+    // mid-task there's no warning scare, only the real one.
     this._loopAt(27, () => {
-      if (!this.over && (this.level >= 3 || this._danger > 0.75)) this._peekScare();
+      if (!this.over && this.beat === 'free' && this.level >= 3) this._peekScare();
     });
     await sleep(1);
     await this._say('a_greeting');
@@ -469,20 +518,23 @@ export class Director {
     await sleep(0.9);
     this.lighting.kill();
     this.lighting.redAlert(true);
-    // it's in the doorway now — and it comes at you
+    // it's in the doorway now — and it comes all the way in
     const f = this.refs.figure;
     f.position.set(-1.5, 0, -2.55);
     f.rotation.y = 0;
     f.visible = true;
-    this._lunge = { t: 0, slow: true };
+    this._kill = { t: 0 };
+    this._scareLoud(2.0, 3);
     sfx.noiseScream();
     this._glitchPulse(1);
     this.hud.scareFlash(1.6);
-    this.shake = 1;
+    this.shake = 1.4;
     const w = await playLine('x_door', { timbre: 'X', gain: 0.8 });
     if (!w) whisper(X.door, { gain: 0.6, rate: 0.4 });
     this.hud.print('src-x', '> SIGNAL OVERRUN — CARRIER UNRESOLVED');
-    await sleep(2.3);
+    await sleep(1.2);
+    this.hud.blackout(true, 0.5);
+    await sleep(1.2);
     bus.emit('gameover', 'door');
   }
 
@@ -516,7 +568,7 @@ export class Director {
     }
 
     // the charge scare — covers most of the room in ~half a second,
-    // vanishes just short of your face
+    // HOLDS on your face, the world blinks black, then it's gone
     if (this._peek) {
       const f = this.refs.figure;
       const cp = this.camera.position;
@@ -525,7 +577,11 @@ export class Director {
       this._peekTarget.set(cp.x, cp.y - 0.62, cp.z - 0.15);
       f.position.lerp(this._peekTarget, Math.min(1, dt * (2.2 + this._peek.t * 10)));
       f.lookAt(cp.x, f.position.y + 0.8, cp.z);
-      if (this._peek.t > 0.55) {
+      if (this._peek.t > 0.65 && !this._peek.blacked) {
+        this._peek.blacked = true;
+        this.hud.blackoutPulse(0.45);   // total dark while it breathes on you
+      }
+      if (this._peek.t > 0.95) {
         f.visible = false;
         this._peek = null;
         this._doorMove = 'close';
@@ -534,6 +590,23 @@ export class Director {
         sfx.sting(0.9);
         this.shake = Math.max(this.shake, 0.9);
       }
+    }
+
+    // the kill lunge — it doesn't stop short. it fills the whole screen
+    // and stays there while everything goes black.
+    if (this._kill) {
+      const f = this.refs.figure;
+      const cp = this.camera.position;
+      this._kill.t += dt;
+      if (!this._kill.face) {
+        this._kill.face = new THREE.Vector3();
+        this._kill.dir = new THREE.Vector3();
+        this.camera.getWorldDirection(this._kill.dir);
+        this._kill.face.copy(cp).addScaledVector(this._kill.dir, 0.42);
+        this._kill.face.y = cp.y - 1.72;   // its eyes level with yours
+      }
+      f.position.lerp(this._kill.face, Math.min(1, dt * (3 + this._kill.t * 14)));
+      f.lookAt(cp.x, f.position.y + 0.8, cp.z);
     }
 
     // door panel — smashed open during the scare, slid open on the kill
@@ -647,6 +720,24 @@ export class Director {
       lp.t -= dt;
       if (lp.t <= 0) { lp.t = lp.interval * (0.7 + Math.random() * 0.6); lp.fn(); }
     }
+
+    // ----- a loud radio calls it. sustained signal clarity drags it
+    // out of the walls — keep the carrier quiet between checks. -----
+    if (probe && probe.clarity > 0.6) {
+      this._loudTime += dt * probe.clarity;
+    } else {
+      this._loudTime = Math.max(0, this._loudTime - dt * 0.9);
+    }
+    if (this._loudTime > 18 && !this._flags.loudWarn) {
+      this._flags.loudWarn = true;
+      this.hud.print('sys', '> CARRIER LEVEL EXCESSIVE — SIGNAL SOURCE LISTENING BACK');
+      this.hud.setHint('the radio is too loud. pull the dial off the band.');
+      sfx.metalScratch(SOURCES.door.bearing, 1.5, 0, 2.0);
+      sfx.knock(SOURCES.door.bearing, 1.4, 0, 2);
+      this._glitchPulse(0.3);
+    }
+    if (this._loudTime < 8) this._flags.loudWarn = false;
+    if (this._loudTime > 32) this._monsterKill();
 
     this._checkQuiet(dt);
   }

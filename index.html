@@ -139,6 +139,10 @@
       background: radial-gradient(ellipse at center, transparent 30%, rgba(80,8,4,.55));
       opacity: 0; }
 
+    /* total black takeover — it fills your vision, then there is nothing */
+    #blackout { position: fixed; inset: 0; z-index: 50; pointer-events: none;
+      background: #000; opacity: 0; transition: opacity .45s ease; }
+
     /* subtle vignette backup */
     #vin { position: fixed; inset: 0; z-index: 5; pointer-events: none;
       background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55)); }
@@ -153,6 +157,7 @@
     <div id="tape-slot"><b>TAPE LOG</b><div id="tape-list"></div></div>
   </div>
   <div id="scare"></div>
+  <div id="blackout"></div>
   <div id="vin"></div>
 
   <div id="start-screen">

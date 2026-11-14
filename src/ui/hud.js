@@ -10,6 +10,7 @@ export class HUD {
     this.tapeList = document.getElementById('tape-list');
     this.micRead = document.getElementById('micread');
     this.scare = document.getElementById('scare');
+    this.blackoutEl = document.getElementById('blackout');
 
     this.device = null;   // the low-poly handheld tuner (set by main)
 
@@ -92,6 +93,16 @@ export class HUD {
   markTapeHidden(tape) {
     const el = this.tapeList.children[tape.id - 1];
     if (el) { el.classList.add('hidden-layer'); el.textContent += ' — LAYER FOUND'; }
+  }
+
+  // full-screen black — sustained (kill) or a quick blink (warning scare)
+  blackout(on, fade = 0.45) {
+    this.blackoutEl.style.transition = `opacity ${fade}s ease`;
+    this.blackoutEl.style.opacity = on ? '1' : '0';
+  }
+  blackoutPulse(hold = 0.5) {
+    this.blackout(true, 0.12);
+    setTimeout(() => this.blackout(false, 0.35), hold * 1000);
   }
 
   scareFlash(strength = 1) {
