@@ -68,6 +68,9 @@ export class Director {
     this._glitch = 0;
     this._scratch = null;    // the deadline scratch bed
     this._lunge = null;      // the entity coming for you
+    this._peek = null;       // the charge scare — it bursts out then vanishes
+    this._tickT = 0;         // claw-tap countdown timer
+    this._danger = 0;        // current task danger, drives scare eligibility
 
     bus.on('attention', (reason) => this.add(ATTENTION[reason] ?? 0, reason));
     bus.on('playback', (tape) => this._onPlayback(tape));
@@ -140,6 +143,8 @@ export class Director {
       this._say('b_outside');
       this.doorArmed = true;   // it's knocking. the wheel will turn if you let it
       this._loopAt(16, () => sfx.knock(SOURCES.door.bearing, 1.2, 0, 2 + (Math.random() * 2 | 0)));
+      // and a few seconds later — it tries the room once
+      this._after(9, () => { if (!this.over) this._peekScare(); });
     }
   }
 
@@ -165,6 +170,22 @@ export class Director {
     this._glitch = Math.max(this._glitch, v);
   }
 
+  // it comes through the doorway at you — red eyes, fast, then gone.
+  // non-fatal: it's testing whether the door needs to stay shut.
+  _peekScare() {
+    if (this.over || this._peek || this._lunge) return;
+    const f = this.refs.figure;
+    f.position.set(-1.5, 0, -2.55);
+    f.rotation.y = 0;
+    f.visible = true;
+    this._peek = { t: 0 };
+    sfx.sting(1.15);
+    sfx.metalScratch(SOURCES.door.bearing, 0.7, 0, 0.9);
+    this.hud.scareFlash(0.8);
+    this._glitchPulse(0.5);
+    this.shake = Math.max(this.shake, 0.6);
+  }
+
   _figureAtWindow(seconds) {
     const f = this.refs.figure;
     f.position.set(1.15, 0.28, -2.868);
@@ -185,6 +206,14 @@ export class Director {
     const em = this.mic.spawnEmitter('trash', SOURCES.trash.world, { roomLevel: 0.3, micLevel: 1.3 });
     this._trashStatic = sfx.dirtyStaticInto(em.input, 0.4);
     this._loopAt(0.55, () => { if (Math.random() < 0.55) sfx.emitPop(em.input, 0.09); });
+  }
+
+  // the vent breathes all shift — duct rumble + settling rattles.
+  // the locate task borrows this same emitter for its clank loop.
+  _spawnVent() {
+    this._ventEm = this.mic.spawnEmitter('vent', SOURCES.vent.world, { roomLevel: 0.12, micLevel: 1.15 });
+    this._ventBed = sfx.ventBed(this._ventEm.input, 0.15);
+    this._loopAt(1.4, () => { if (Math.random() < 0.65) sfx.emitRattle(this._ventEm.input, 0.05 + Math.random() * 0.06); });
   }
 
   // player pulls the cassette out of the trash can
@@ -227,8 +256,8 @@ export class Director {
     if (task.line) this._say(task.line);
 
     if (task.id === 'locate') {
-      const em = this.mic.spawnEmitter('vent', SOURCES.vent.world, { roomLevel: 0.14, micLevel: 1.2 });
-      this._ventLoop = { em, t: 0 };
+      // clank pulses ride the same always-on vent emitter
+      this._ventLoop = { em: this._ventEm, t: 0 };
       this._flags.aimedTime = 0;
     }
     if (task.id === 'record') {
@@ -251,6 +280,7 @@ export class Director {
     const task = TASKS[i];
     this.taskIdx = -1;
     this._scratch?.setLevel(0);
+    this.hud.setUrgent(false);
     sfx.sting(0.25);
     this.hud.setHint('');
     await this.hud.print('sys', `> TASK ${i + 1}/6 COMPLETE`);
@@ -281,6 +311,7 @@ export class Director {
   async _deadlineDeath() {
     if (this.over) return;
     this.over = true;
+    this.hud.setUrgent(false);
     this._scratch?.setLevel(1);
     cutSpeech();
     sfx.sting(1.4);
@@ -309,8 +340,13 @@ export class Director {
       await sleep(0.5);
     }
     this._spawnTrash();
+    this._spawnVent();
     this._env = sfx.facilityAmbience();   // wind, drips, pipes, the building
     this._scratch = sfx.scratchLoop();    // the deadline instrument
+    // it tests the room occasionally — more often once it's close
+    this._loopAt(27, () => {
+      if (!this.over && (this.level >= 3 || this._danger > 0.75)) this._peekScare();
+    });
     await sleep(1);
     await this._say('a_greeting');
     await sleep(1.2);
@@ -462,6 +498,24 @@ export class Director {
       f.lookAt(cp.x, f.position.y + 0.8, cp.z);
     }
 
+    // the charge scare — covers most of the room in ~half a second,
+    // vanishes just short of your face
+    if (this._peek) {
+      const f = this.refs.figure;
+      const cp = this.camera.position;
+      this._peek.t += dt;
+      this._peekTarget = this._peekTarget || new THREE.Vector3();
+      this._peekTarget.set(cp.x, cp.y - 0.62, cp.z - 0.15);
+      f.position.lerp(this._peekTarget, Math.min(1, dt * (2.2 + this._peek.t * 10)));
+      f.lookAt(cp.x, f.position.y + 0.8, cp.z);
+      if (this._peek.t > 0.55) {
+        f.visible = false;
+        this._peek = null;
+        this._glitchPulse(0.35);
+        sfx.sting(0.5);
+      }
+    }
+
     // door panel slides open during the fail sequence
     if (this._flags.doorAnim) {
       const p = this.refs.dpanel;
@@ -474,6 +528,7 @@ export class Director {
     if (this.beat === 'tasks' && task) {
       this.taskLeft -= dt;
       const danger = 1 - Math.max(0, this.taskLeft) / task.time;
+      this._danger = danger;
       // scratching starts ~40% in for normal tasks; immediately for the
       // silence task (it circles you while you try not to breathe)
       const ramp = task.survive ? danger : Math.max(0, (danger - 0.35) / 0.65);
@@ -493,9 +548,22 @@ export class Director {
         sfx.sting(0.7);
         sfx.metalScratch(SOURCES.door.bearing, 0.8, 0, 2.2);
       }
-      // countdown in the objective line
+
+      // the countdown is audible: claw-taps on the door that accelerate
+      // and close distance as the clock dies. in the silence task it
+      // circles the vent behind you instead.
+      const tapDanger = task.survive ? danger : Math.max(0, (danger - 0.3) / 0.7);
+      this._tickT -= dt;
+      if (this._tickT <= 0 && tapDanger > 0.05) {
+        this._tickT = Math.max(0.22, 1.15 - tapDanger * 0.95);
+        const bearing = task.survive ? SOURCES.behind.bearing : SOURCES.door.bearing;
+        sfx.clawTap(bearing, Math.max(0.7, 3.2 - tapDanger * 2.5), 0.05 + tapDanger * 0.3);
+      }
+
+      // countdown in the objective line — goes red under 15s
       const s = Math.max(0, Math.ceil(this.taskLeft));
       this.hud.setObjective(`TASK ${this.taskIdx + 1}/6 — ${task.label} — ${s}s`);
+      this.hud.setUrgent(!task.survive && this.taskLeft < 15);
 
       // per-task completion checks
       if (task.id === 'tune' && probe && probe.clarity > 0.55 &&
@@ -512,8 +580,7 @@ export class Director {
         if (em.aim > 0.7) {
           this._flags.aimedTime += dt;
           if (this._flags.aimedTime > 1.2) {
-            this.mic.removeEmitter('vent');
-            this._ventLoop = null;
+            this._ventLoop = null;   // stop the clanks; the vent keeps breathing
             this._completeTask();
           }
         } else {

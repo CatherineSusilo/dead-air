@@ -452,6 +452,65 @@ export function facilityAmbience() {
   };
 }
 
+// a claw-tap on the door metal — the countdown made physical.
+// distance shrinks as it gets closer; gain rises.
+export function clawTap(bearing = -8, distance = 2.5, gain = 0.15) {
+  const c = ctx(), t = c.currentTime;
+  const nz = audio.noiseSource(false);
+  const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 10;
+  f.frequency.setValueAtTime(2400 + Math.random() * 900, t);
+  f.frequency.exponentialRampToValueAtTime(800, t + 0.15);
+  const e = c.createGain();
+  e.gain.setValueAtTime(0.0001, t);
+  e.gain.exponentialRampToValueAtTime(gain, t + 0.006);
+  e.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
+  // heavy thud underneath so it reads as something with mass
+  const o = c.createOscillator(); o.frequency.value = 72;
+  const og = c.createGain();
+  og.gain.setValueAtTime(0.0001, t);
+  og.gain.exponentialRampToValueAtTime(gain * 0.9, t + 0.012);
+  og.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  const { input, output } = audio.panner(bearing, distance);
+  nz.connect(f).connect(e).connect(input);
+  o.connect(og).connect(input);
+  output.connect(audio.roomBus);
+  output.connect(audio.reverb);
+  nz.start(t); nz.stop(t + 0.2); o.start(t); o.stop(t + 0.24);
+}
+
+// continuous duct rumble for the vent — dead air moving through ductwork
+export function ventBed(dest, gain = 0.12) {
+  const c = ctx();
+  const nz = audio.noiseSource(true);
+  const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 250; f.Q.value = 1.3;
+  const g = c.createGain(); g.gain.value = gain;
+  const lfo = c.createOscillator(); lfo.frequency.value = 0.19;
+  const ld = c.createGain(); ld.gain.value = gain * 0.5;
+  lfo.connect(ld).connect(g.gain);
+  nz.connect(f).connect(g).connect(dest);
+  nz.start(); lfo.start();
+  return {
+    stop() {
+      g.gain.linearRampToValueAtTime(0, c.currentTime + 0.3);
+      setTimeout(() => { try { nz.stop(); lfo.stop(); } catch {} }, 500);
+    },
+  };
+}
+
+// dry metal rattle into an emitter — duct hardware settling
+export function emitRattle(dest, gain = 0.1) {
+  const c = ctx(), t = c.currentTime;
+  const nz = audio.noiseSource(false);
+  const f = c.createBiquadFilter(); f.type = 'bandpass';
+  f.frequency.value = 1500 + Math.random() * 1100; f.Q.value = 7;
+  const e = c.createGain();
+  e.gain.setValueAtTime(0.0001, t);
+  e.gain.exponentialRampToValueAtTime(gain, t + 0.008);
+  e.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+  nz.connect(f).connect(e).connect(dest);
+  nz.start(t); nz.stop(t + 0.26);
+}
+
 // radio tuning swoop texture while scanning the band
 export function scanSweep() {
   const c = ctx(), t = c.currentTime;

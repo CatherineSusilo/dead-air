@@ -107,6 +107,16 @@
 
     /* hint line under objective */
     #hint { color:#b09050; font-size:11px; letter-spacing:1px; margin-top:6px; font-style:italic; }
+    #objective.urgent #objective-text { color:#e06050; animation:blink .4s steps(1) infinite; }
+    #objective.urgent { border-color:#7e2f24; }
+
+    /* numeric mic bearing readout — bottom left */
+    #micread { position:absolute; left:26px; bottom:20px; padding:6px 12px;
+      background:rgba(4,10,4,.8); border:1px solid #1e2e1c; color:#5d7a50;
+      font-size:14px; letter-spacing:2px; text-shadow:0 0 4px rgba(159,212,138,.4);
+      transition:color .2s, border-color .2s; }
+    #micread.live { color:#9fd48a; border-color:#3d6b32;
+      text-shadow:0 0 8px rgba(159,212,138,.7); }
 
     /* tape list hint */
     #tape-slot { position: absolute; right: 26px; bottom: 20px; width: 210px;
@@ -139,6 +149,7 @@
     <div id="crt"><span class="sys">DEAD AIR TERMINAL v2.3 — STANDBY</span><br><span class="cursor"></span></div>
     <div id="objective"><div class="head">DIRECTIVE</div><div id="objective-text">AWAITING INSTRUCTIONS</div><div id="hint"></div></div>
     <div id="prompt"></div>
+    <div id="micread">MIC 000°</div>
     <div id="tape-slot"><b>TAPE LOG</b><div id="tape-list"></div></div>
   </div>
   <div id="scare"></div>

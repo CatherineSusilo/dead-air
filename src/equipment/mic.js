@@ -83,5 +83,8 @@ export class DirectionalMic {
     this.peak = peak;
     const deg = ((Math.round(this.azimuth) % 360) + 360) % 360;
     this.hud.setMic(deg, peak);
+    // numeric bearing readout — glows while it's moving
+    if (this.azimuth !== this._prevAz) { this._prevAz = this.azimuth; this._live = performance.now(); }
+    this.hud.setMicRead(Math.round(this.azimuth), performance.now() - (this._live || 0) < 1600);
   }
 }

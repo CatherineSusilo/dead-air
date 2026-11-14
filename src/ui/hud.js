@@ -8,6 +8,7 @@ export class HUD {
     this.hint = document.getElementById('hint');
     this.promptEl = document.getElementById('prompt');
     this.tapeList = document.getElementById('tape-list');
+    this.micRead = document.getElementById('micread');
     this.scare = document.getElementById('scare');
 
     this.device = null;   // the low-poly handheld tuner (set by main)
@@ -55,7 +56,13 @@ export class HUD {
   showConsole(on) { this.device?.show(on); }
 
   setObjective(t) { this.objective.textContent = t.toUpperCase(); }
+  setUrgent(on) { this.objective.parentElement.classList.toggle('urgent', on); }
   setHint(t) { this.hint.textContent = t || ''; }
+  setMicRead(deg, live) {
+    const sign = deg < 0 ? '−' : '';
+    this.micRead.textContent = `MIC ${sign}${String(Math.abs(deg)).padStart(3, '0')}°`;
+    this.micRead.classList.toggle('live', live);
+  }
 
   prompt(t) {
     if (t) { this.promptEl.innerHTML = t; this.promptEl.classList.add('show'); }
