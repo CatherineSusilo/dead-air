@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DEAD AIR</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%23050705'/><circle cx='8' cy='8' r='4' fill='none' stroke='%239fd48a' stroke-width='1.5'/></svg>" />
+  <style>
+    :root {
+      --crt-green: #9fd48a;
+      --crt-dim: #4a6b42;
+      --amber: #d8b06a;
+      --red: #a83c2e;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    body { font-family: 'Courier New', monospace; cursor: crosshair; }
+    canvas { display: block; }
+
+    /* ---------- fullscreen start overlay ---------- */
+    #start-screen {
+      position: fixed; inset: 0; z-index: 50;
+      background: #050705;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px; color: var(--crt-green);
+      transition: opacity 1.2s ease;
+    }
+    #start-screen.hidden { opacity: 0; pointer-events: none; }
+    #start-screen h1 {
+      font-size: 64px; letter-spacing: 22px; font-weight: 400;
+      text-shadow: 0 0 18px rgba(159, 212, 138, .55), 3px 0 0 rgba(168,60,46,.35), -3px 0 0 rgba(60,120,168,.35);
+    }
+    #start-screen .tag {
+      font-size: 14px; letter-spacing: 4px; color: var(--crt-dim); margin-bottom: 22px;
+    }
+    #start-screen .card {
+      border: 1px solid #2a3b28; padding: 20px 26px; width: 480px;
+      background: rgba(10, 16, 10, .8); font-size: 13px; line-height: 2;
+      color: #8aa87f;
+    }
+    #start-screen .card b { color: var(--crt-green); font-weight: 400; }
+    #begin-btn {
+      margin-top: 10px; padding: 12px 46px; background: transparent;
+      border: 1px solid var(--crt-green); color: var(--crt-green);
+      font-family: inherit; font-size: 15px; letter-spacing: 6px; cursor: pointer;
+      animation: pulse 2.2s infinite;
+    }
+    #begin-btn:hover { background: rgba(159,212,138,.12); }
+    @keyframes pulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+
+    /* ---------- end screen ---------- */
+    #end-screen {
+      position: fixed; inset: 0; z-index: 60; background: #000;
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      gap: 20px; color: var(--crt-green); opacity: 0; transition: opacity 2.5s ease;
+    }
+    #end-screen.show { display: flex; }
+    #end-screen.visible { opacity: 1; }
+    #end-screen h2 { font-size: 42px; letter-spacing: 16px; font-weight: 400;
+      text-shadow: 0 0 14px rgba(159,212,138,.5); }
+    #end-screen p { color: var(--crt-dim); letter-spacing: 3px; font-size: 13px; }
+    #restart-btn { margin-top: 24px; padding: 10px 36px; background: transparent;
+      border: 1px solid var(--crt-dim); color: var(--crt-dim);
+      font-family: inherit; letter-spacing: 4px; cursor: pointer; font-size: 13px; }
+    #restart-btn:hover { color: var(--crt-green); border-color: var(--crt-green); }
+
+    /* ---------- HUD ---------- */
+    #hud { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
+
+    /* diegetic CRT monitor readout (top-left, matches desk monitor) */
+    #crt {
+      position: absolute; left: 26px; top: 24px; width: 400px; min-height: 120px;
+      padding: 14px 16px; color: var(--crt-green); font-size: 13px; line-height: 1.7;
+      background:
+        repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px),
+        rgba(4, 12, 5, .82);
+      border: 1px solid #1e2e1c; border-radius: 3px;
+      text-shadow: 0 0 6px rgba(159,212,138,.6);
+      box-shadow: 0 0 24px rgba(0,0,0,.7), inset 0 0 30px rgba(20,60,20,.25);
+      white-space: pre-wrap; overflow: hidden;
+    }
+    #crt .src-a { color: var(--crt-green); }
+    #crt .src-b { color: var(--amber); text-shadow: 0 0 6px rgba(216,176,106,.55); }
+    #crt .src-x { color: #d0604e; text-shadow: 0 0 8px rgba(208,96,78,.6); }
+    #crt .sys   { color: var(--crt-dim); font-size: 11px; }
+    .cursor { display: inline-block; width: 8px; height: 13px; background: var(--crt-green);
+      animation: blink .8s steps(1) infinite; vertical-align: -2px; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* center interact prompt */
+    #prompt {
+      position: absolute; left: 50%; top: 58%; transform: translateX(-50%);
+      color: #b7cfa8; font-size: 13px; letter-spacing: 2px;
+      text-shadow: 0 0 8px rgba(0,0,0,.9); opacity: 0; transition: opacity .15s;
+      background: rgba(0,0,0,.45); padding: 5px 12px; border: 1px solid rgba(159,212,138,.25);
+    }
+    #prompt.show { opacity: 1; }
+    #prompt b { color: var(--crt-green); font-weight: 400; }
+
+    /* equipment status strip (bottom) */
+    #statusbar {
+      position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
+      display: flex; gap: 14px;
+    }
+    .stat-box {
+      min-width: 150px; padding: 8px 14px; background: rgba(4,10,4,.8);
+      border: 1px solid #1e2e1c; color: var(--crt-green); font-size: 11px;
+      letter-spacing: 1px; text-shadow: 0 0 5px rgba(159,212,138,.5);
+      transition: border-color .3s, box-shadow .3s;
+    }
+    .stat-box.active { border-color: var(--crt-green);
+      box-shadow: 0 0 12px rgba(159,212,138,.15); }
+    .stat-box .lbl { color: var(--crt-dim); font-size: 9px; letter-spacing: 3px; }
+    .stat-box .val { font-size: 15px; margin-top: 2px; }
+    .stat-box.rec .val { color: #e06050; text-shadow: 0 0 6px rgba(224,96,80,.6); }
+
+    /* signal strength meter */
+    .meter { height: 7px; margin-top: 5px; background: #0a140a; border: 1px solid #1e2e1c; }
+    .meter i { display: block; height: 100%; width: 0%;
+      background: linear-gradient(90deg, #3d6b32, var(--crt-green), #e0d060);
+      transition: width .08s linear; }
+
+    /* tape list hint */
+    #tape-slot { position: absolute; right: 26px; bottom: 20px; width: 210px;
+      padding: 8px 12px; background: rgba(4,10,4,.8); border: 1px solid #1e2e1c;
+      color: var(--crt-dim); font-size: 10px; letter-spacing: 1px; line-height: 1.8; }
+    #tape-slot b { color: var(--crt-green); font-weight: 400; letter-spacing: 2px; }
+    #tape-slot .tape { color: #8aa87f; }
+    #tape-slot .tape.hidden-layer { color: var(--red); }
+
+    /* objective line */
+    #objective {
+      position: absolute; right: 26px; top: 24px; max-width: 300px; text-align: right;
+      color: #6f8a63; font-size: 11px; letter-spacing: 2px; line-height: 1.9;
+      text-shadow: 0 0 6px rgba(0,0,0,.9);
+    }
+    #objective .head { color: var(--crt-dim); font-size: 9px; letter-spacing: 4px; }
+
+    /* fullscreen red flicker for scares */
+    #scare { position: fixed; inset: 0; z-index: 40; pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 30%, rgba(80,8,4,.55));
+      opacity: 0; }
+
+    /* subtle vignette backup */
+    #vin { position: fixed; inset: 0; z-index: 5; pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55)); }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div id="crt"><span class="sys">DEAD AIR TERMINAL v2.3 — STANDBY</span><br><span class="cursor"></span></div>
+    <div id="objective"><div class="head">DIRECTIVE</div><div id="objective-text">AWAITING INSTRUCTIONS</div></div>
+    <div id="prompt"></div>
+    <div id="statusbar">
+      <div class="stat-box" id="box-tuner">
+        <div class="lbl">TUNER</div>
+        <div class="val" id="freq-val">---.- MHz</div>
+        <div class="meter"><i id="sig-meter"></i></div>
+      </div>
+      <div class="stat-box" id="box-mic">
+        <div class="lbl">MIC &nbsp;&lt;Q / E&gt;</div>
+        <div class="val" id="mic-val">000&deg;</div>
+        <div class="meter"><i id="mic-meter"></i></div>
+      </div>
+      <div class="stat-box" id="box-rec">
+        <div class="lbl">RECORDER</div>
+        <div class="val" id="rec-val">IDLE</div>
+      </div>
+    </div>
+    <div id="tape-slot"><b>TAPE LOG</b><div id="tape-list"></div></div>
+  </div>
+  <div id="scare"></div>
+  <div id="vin"></div>
+
+  <div id="start-screen">
+    <h1>DEAD AIR</h1>
+    <div class="tag">THE MORE YOU LISTEN, THE CLOSER IT GETS</div>
+    <div class="card">
+      <b>MOUSE</b>&nbsp;&nbsp;look around &nbsp;·&nbsp; <b>CLICK</b> hold &amp; drag equipment<br>
+      <b>A / D</b>&nbsp;&nbsp;&nbsp;fine-tune frequency dial<br>
+      <b>Q / E</b>&nbsp;&nbsp;&nbsp;rotate directional microphone<br>
+      <b>R</b>&nbsp;&nbsp;&nbsp;&nbsp;record &nbsp;·&nbsp; <b>P</b> play tape &nbsp;·&nbsp; <b>SPACE</b> stop<br>
+      <b>HEADPHONES RECOMMENDED.</b> It hears you listening.
+    </div>
+    <button id="begin-btn">BEGIN SHIFT</button>
+  </div>
+
+  <div id="end-screen">
+    <h2>DEAD AIR</h2>
+    <p id="end-text">SIGNAL LOST</p>
+    <button id="restart-btn">RESTART SHIFT</button>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
